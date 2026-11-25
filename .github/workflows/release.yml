@@ -123,9 +123,17 @@ jobs:
 
           if ($assets.Count -lt 4) { throw "Asset insufficienti per la release: $($assets.Count)" }
 
-          & gh release create $env:TAG `
-              --title "GameTranslator IT $env:VERSION" `
-              --notes-file $notes `
-              --verify-tag @assets
-          if ($LASTEXITCODE -ne 0) { throw "Pubblicazione della release non riuscita." }
-          Write-Host "Release pubblicata: $env:TAG"
+          $existing = & gh release view $env:TAG --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) {
+              & gh release upload $env:TAG @assets --repo $env:GITHUB_REPOSITORY --clobber
+              if ($LASTEXITCODE -ne 0) { throw "Caricamento degli asset non riuscito." }
+              Write-Host "Release esistente aggiornata: $env:TAG"
+          }
+          else {
+              & gh release create $env:TAG `
+                  --title "GameTranslator IT $env:VERSION" `
+                  --notes-file $notes `
+                  --verify-tag @assets
+              if ($LASTEXITCODE -ne 0) { throw "Pubblicazione della release non riuscita." }
+              Write-Host "Release pubblicata: $env:TAG"
+          }
