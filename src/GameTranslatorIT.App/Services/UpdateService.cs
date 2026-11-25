@@ -77,7 +77,9 @@ public sealed class UpdateService
             if (!TryParseVersion(tag, out var remoteVersion))
                 return new UpdateCheckResult(false, null, "Verifica non riuscita", $"Tag GitHub non valido: '{tag}'.");
 
-            var current = new Version(CurrentVersion);
+            // Usa la stessa normalizzazione a 4 componenti di TryParseVersion: new Version("1.0.3")
+            // ha Revision = -1 e verrebbe considerato inferiore a 1.0.3.0, mostrando un falso aggiornamento.
+            var current = TryParseVersion(CurrentVersion, out var parsedCurrent) ? parsedCurrent : new Version(0, 0, 0, 0);
             if (remoteVersion <= current)
                 return new UpdateCheckResult(true, null,
                     $"Nessun aggiornamento disponibile (versione installata {current.ToString(3)}).", null);
