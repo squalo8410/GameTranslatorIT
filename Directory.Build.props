@@ -2,7 +2,7 @@
 
   <!-- Unica fonte di verità per la versione dell'applicazione e degli installer. -->
   <PropertyGroup>
-    <Version>1.0.5</Version>
+    <Version>1.0.6</Version>
     <AssemblyVersion>$(Version).0</AssemblyVersion>
     <FileVersion>$(Version).0</FileVersion>
     <Company>GameTranslator IT</Company>

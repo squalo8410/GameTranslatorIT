@@ -124,17 +124,9 @@
                                          IsChecked="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.FullScreen}}" />
                             <TextBlock Text="Monitor" Style="{StaticResource Muted}" Margin="0,12,0,4" />
                             <ComboBox ItemsSource="{Binding Monitors}" DisplayMemberPath="Name"
-                                      SelectedIndex="{Binding Settings.SelectedMonitorIndex}">
-                                <ComboBox.Style>
-                                    <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.GameWindow}}" Value="True">
-                                                <Setter Property="IsEnabled" Value="False" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </ComboBox.Style>
-                            </ComboBox>
+                                      SelectedIndex="{Binding Settings.SelectedMonitorIndex}"
+                                      SelectionChanged="MonitorSetting_Changed"
+                                      ToolTip="Scegliendo un monitor si attiva automaticamente la cattura a schermo intero" />
                             <Button Content="Aggiorna monitor e finestre" Command="{Binding RefreshDevicesCommand}"
                                     HorizontalAlignment="Left" Margin="0,12,0,0" />
                         </StackPanel>
@@ -146,17 +138,9 @@
                                          IsChecked="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.GameWindow}}" />
                             <TextBlock Text="Finestra del gioco da leggere" Style="{StaticResource Muted}" Margin="0,8,0,6" />
                             <ComboBox ItemsSource="{Binding Windows}" DisplayMemberPath="Title"
-                                      SelectedValuePath="Title" SelectedValue="{Binding Settings.SelectedWindowTitle}">
-                                <ComboBox.Style>
-                                    <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.FullScreen}}" Value="True">
-                                                <Setter Property="IsEnabled" Value="False" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </ComboBox.Style>
-                            </ComboBox>
+                                      SelectedValuePath="Title" SelectedValue="{Binding Settings.SelectedWindowTitle}"
+                                      SelectionChanged="WindowSetting_Changed"
+                                      ToolTip="Scegliendo una finestra si attiva automaticamente la cattura della finestra di gioco" />
                             <Button Content="Aggiorna elenco finestre" Command="{Binding RefreshDevicesCommand}"
                                     HorizontalAlignment="Left" Margin="0,10,0,0" />
                         </StackPanel>
@@ -286,6 +270,8 @@
                                       ToolTip="Lingua in cui viene tradotto il testo" />
                             <TextBlock Text="{Binding LanguageHint}" Style="{StaticResource Muted}"
                                        TextWrapping="Wrap" Margin="0,10,0,0" />
+                            <Button Content="Aggiorna elenco lingue" Command="{Binding RefreshLanguagesCommand}"
+                                    HorizontalAlignment="Left" Margin="0,8,0,0" />
                         </StackPanel>
                     </Expander>
 

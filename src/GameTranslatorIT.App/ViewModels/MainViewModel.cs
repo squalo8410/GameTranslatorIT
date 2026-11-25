@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Threading;
@@ -27,6 +28,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private ITranslationProvider _provider;
     private AvailableLanguages? _lastAvailableLanguages;
     private string _languageHint = "Lingue in caricamento…";
+    private DispatcherTimer? _languageRefreshTimer;
+    private bool _languageRefreshRunning;
+    private bool _autoStartAttempted;
+    private bool _isRefreshingLanguageOptions;
     private bool _isRunning;
     private bool _forceVoice;
     private bool _disposed;
@@ -148,6 +153,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public RelayCommand StartCommand { get; }
     public RelayCommand StopCommand { get; }
     public RelayCommand RefreshDevicesCommand { get; }
+    public RelayCommand RefreshLanguagesCommand { get; }
     public RelayCommand RefreshAudioDevicesCommand { get; }
     public RelayCommand OpenSettingsCommand { get; }
     public RelayCommand TestTranslationCommand { get; }
@@ -182,6 +188,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         StartCommand = new RelayCommand(_ => Start(), _ => !IsRunning);
         StopCommand = new RelayCommand(_ => Stop(), _ => IsRunning);
         RefreshDevicesCommand = new RelayCommand(_ => RefreshDevices());
+        RefreshLanguagesCommand = new RelayCommand(async _ => await RefreshLanguagesAsync());
         RefreshAudioDevicesCommand = new RelayCommand(async _ => await RefreshAudioDevicesAsync());
         OpenSettingsCommand = new RelayCommand(_ => OpenSettings());
         TestTranslationCommand = new RelayCommand(async _ => await TestTranslationAsync());
@@ -202,6 +209,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         CheckForUpdatesCommand = new RelayCommand(async _ => await CheckForUpdatesAsync(true, false));
 
         RefreshDevices();
+        StartLanguageRefreshTimer();
         _ = LoadLanguageOptionsAsync();
 
         try
@@ -698,39 +706,160 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
 
+    /// <summary>
+    /// Ricarica periodicamente l'elenco reale delle lingue. Il servizio locale può
+    /// essere avviato in ritardo rispetto all'app: senza questo aggiornamento le
+    /// destinazioni resterebbero segnate come "da installare" anche dopo l'avvio.
+    /// </summary>
+    private void StartLanguageRefreshTimer()
+    {
+        _languageRefreshTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
+        _languageRefreshTimer.Tick -= LanguageRefreshTimer_Tick;
+        _languageRefreshTimer.Tick += LanguageRefreshTimer_Tick;
+        if (!_languageRefreshTimer.IsEnabled) _languageRefreshTimer.Start();
+    }
+
+    private void LanguageRefreshTimer_Tick(object? sender, EventArgs e)
+        => _ = LoadLanguageOptionsAsync();
+
+    private async Task RefreshLanguagesAsync()
+    {
+        _autoStartAttempted = false;
+        await LoadLanguageOptionsAsync();
+        AppendLog("Elenco lingue e modelli locali aggiornato.");
+    }
+
+    /// <summary>
+    /// Avvia LibreTranslate in background se è installato ma non risponde.
+    /// L'utente non deve più lanciare a mano AvviaLibreTranslate.cmd.
+    /// </summary>
+    private async Task<bool> EnsureLocalTranslationServiceAsync()
+    {
+        var baseUrl = string.IsNullOrWhiteSpace(Settings.LocalTranslateBaseUrl)
+            ? "http://127.0.0.1:5000"
+            : Settings.LocalTranslateBaseUrl.TrimEnd('/');
+
+        var probe = await LanguageCatalog.QueryAsync(baseUrl, 1500).ConfigureAwait(false);
+        if (probe.TranslationServiceReachable)
+        {
+            _autoStartAttempted = false;
+            return true;
+        }
+
+        if (_autoStartAttempted) return false;
+        _autoStartAttempted = true;
+
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var exe = Path.Combine(localAppData, "GameTranslatorIT", "LibreTranslate", "Scripts", "libretranslate.exe");
+        if (!File.Exists(exe)) return false;
+
+        try
+        {
+            var start = new ProcessStartInfo(exe, "--host 127.0.0.1 --port 5000 --disable-web-ui")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = Path.GetDirectoryName(exe) ?? localAppData
+            };
+            start.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+            var process = Process.Start(start);
+            AppendLog(process is null
+                ? "Avvio automatico del servizio di traduzione locale non riuscito."
+                : "Servizio di traduzione locale avviato automaticamente in background.");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Avvio automatico del servizio locale non riuscito: {ex.Message}");
+            return false;
+        }
+
+        // Il primo avvio caricamento dei modelli può richiedere qualche secondo.
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            await Task.Delay(1000).ConfigureAwait(false);
+            var check = await LanguageCatalog.QueryAsync(baseUrl, 1000).ConfigureAwait(false);
+            if (check.TranslationServiceReachable) return true;
+        }
+
+        AppendLog("Servizio locale non ancora pronto: le destinazioni saranno aggiornate automaticamente.");
+        return false;
+    }
+
     private async Task LoadLanguageOptionsAsync()
     {
-        var ocrTags = LanguageCatalog.GetOcrLanguageTags();
-        var available = await LanguageCatalog.QueryAsync(
-            Settings.LocalTranslateBaseUrl, Settings.TranslationTimeoutMs);
-        _lastAvailableLanguages = available;
-        (_provider as CompositeTranslationProvider)?.UpdateLocalTargets(available.TargetCodes);
-
-        var allowOnline = Settings.AllowOnlineFallbackForMissingLanguages;
-        var currentSource = Settings.SourceLanguage;
-        var currentTarget = Settings.TargetLanguage;
-        var sources = LanguageCatalog.BuildSourceOptions(ocrTags, available, currentSource, allowOnline);
-        var targets = LanguageCatalog.BuildTargetOptions(ocrTags, available, currentTarget, allowOnline);
-
-        var onlineNote = allowOnline
-            ? "Le 8 lingue senza modello usano il fallback online (testo inviato online)."
-            : "Le 8 lingue senza modello richiedono l'opzione online nelle impostazioni.";
-        var hint = available.TranslationServiceReachable
-            ? $"{LanguageCatalog.TotalCount} lingue selezionabili · {available.TargetCodes.Count} destinazioni locali pronte. {onlineNote}"
-            : $"{LanguageCatalog.TotalCount} lingue selezionabili · servizio locale non raggiungibile. {onlineNote}";
-
-        Dispatch(() =>
+        if (_languageRefreshRunning || _disposed) return;
+        _languageRefreshRunning = true;
+        try
         {
-            SourceLanguageOptions = new ObservableCollection<LanguageOption>(sources);
-            TargetLanguageOptions = new ObservableCollection<LanguageOption>(targets);
+            await EnsureLocalTranslationServiceAsync().ConfigureAwait(false);
 
-            // La sostituzione della collection non tocca il binding SelectedValue,
-            // ma reimpostiamo i valori per sicurezza (una selezione sopravvissuta
-            // a un Clear può essere stata riportata al primo elemento).
-            Settings.SourceLanguage = currentSource;
-            Settings.TargetLanguage = currentTarget;
-            LanguageHint = hint;
-        });
+            var ocrTags = LanguageCatalog.GetOcrLanguageTags();
+            var available = await LanguageCatalog.QueryAsync(
+                Settings.LocalTranslateBaseUrl, Settings.TranslationTimeoutMs).ConfigureAwait(false);
+
+            var previous = _lastAvailableLanguages;
+            var changed = previous is null
+                || previous.TranslationServiceReachable != available.TranslationServiceReachable
+                || !previous.SourceCodes.SetEquals(available.SourceCodes)
+                || !previous.TargetCodes.SetEquals(available.TargetCodes);
+
+            _lastAvailableLanguages = available;
+            (_provider as CompositeTranslationProvider)?.UpdateLocalTargets(available.TargetCodes);
+
+            var allowOnline = Settings.AllowOnlineFallbackForMissingLanguages;
+            var currentSource = Settings.SourceLanguage;
+            var currentTarget = Settings.TargetLanguage;
+
+            var onlineNote = allowOnline
+                ? "Le 8 lingue senza modello usano il fallback online (testo inviato online)."
+                : "Le 8 lingue senza modello richiedono l'opzione online nelle impostazioni.";
+            var hint = available.TranslationServiceReachable
+                ? $"{LanguageCatalog.TotalCount} lingue selezionabili · {available.TargetCodes.Count} destinazioni locali pronte. {onlineNote}"
+                : $"{LanguageCatalog.TotalCount} lingue selezionabili · servizio locale non raggiungibile, avvio automatico in corso. {onlineNote}";
+
+            if (changed)
+            {
+                var sources = LanguageCatalog.BuildSourceOptions(ocrTags, available, currentSource, allowOnline);
+                var targets = LanguageCatalog.BuildTargetOptions(ocrTags, available, currentTarget, allowOnline);
+                IsRefreshingLanguageOptions = true;
+                Dispatch(() =>
+                {
+                    SourceLanguageOptions = new ObservableCollection<LanguageOption>(sources);
+                    TargetLanguageOptions = new ObservableCollection<LanguageOption>(targets);
+
+                    // La sostituzione della collection non tocca il binding SelectedValue,
+                    // ma reimpostiamo i valori per sicurezza (una selezione sopravvissuta
+                    // a un Clear può essere stata riportata al primo elemento).
+                    Settings.SourceLanguage = currentSource;
+                    Settings.TargetLanguage = currentTarget;
+                    LanguageHint = hint;
+                    IsRefreshingLanguageOptions = false;
+                });
+                AppendLog(available.TranslationServiceReachable
+                    ? $"Modelli locali aggiornati: {available.TargetCodes.Count} destinazioni pronte."
+                    : "Servizio locale non raggiungibile: le lingue restano selezionabili con avvisi sui modelli.");
+            }
+            else
+            {
+                Dispatch(() => LanguageHint = hint);
+            }
+        }
+        finally
+        {
+            _languageRefreshRunning = false;
+        }
+    }
+
+    /// <summary>True mentre ricarichiamo le combo: evita di risalvare la selezione vecchia.</summary>
+    public bool IsRefreshingLanguageOptions
+    {
+        get => _isRefreshingLanguageOptions;
+        private set
+        {
+            if (_isRefreshingLanguageOptions == value) return;
+            _isRefreshingLanguageOptions = value;
+            OnPropertyChanged();
+        }
     }
 
     /// <summary>
@@ -739,11 +868,28 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     public void SaveLanguageSettings()
     {
+        if (IsRefreshingLanguageOptions) return;
         _settingsService.Save(Settings);
         _pipeline?.ApplyLanguageSettings();
         // Le opzioni non dipendono dalla lingua selezionata: non ricaricarle qui,
         // altrimenti il ripristino della SelectedValue può risembrare SelectionChanged.
         AppendLog("Lingue aggiornate in tempo reale (nessun riavvio dell'app).");
+    }
+
+    /// <summary>Scegliere un monitor attiva subito la cattura a schermo intero.</summary>
+    public void SelectMonitor()
+    {
+        if (Settings.CaptureMode == CaptureMode.FullScreen) return;
+        Settings.CaptureMode = CaptureMode.FullScreen;
+        SaveAndRestartIfRunning("Cattura su schermo intero attivata dalla scelta del monitor.");
+    }
+
+    /// <summary>Scegliere una finestra attiva subito la cattura della finestra di gioco.</summary>
+    public void SelectGameWindow()
+    {
+        if (Settings.CaptureMode == CaptureMode.GameWindow) return;
+        Settings.CaptureMode = CaptureMode.GameWindow;
+        SaveAndRestartIfRunning("Cattura della finestra di gioco attivata dalla scelta della finestra.");
     }
 
     /// <summary>Salva volume e velocità della voce senza interrompere la frase in corso.</summary>
@@ -1573,6 +1719,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         Stop();
         StopPendingDeviceWatch();
         _pendingDeviceTimer = null;
+        _languageRefreshTimer?.Stop();
+        _languageRefreshTimer = null;
         _updateTimer?.Dispose();
         _updateTimer = null;
         _updateWindow?.Close();

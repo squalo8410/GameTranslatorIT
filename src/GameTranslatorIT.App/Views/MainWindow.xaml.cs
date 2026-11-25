@@ -23,7 +23,20 @@ public partial class MainWindow : Window
     private void LanguageSetting_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (sender is not ComboBox { IsLoaded: true, SelectedValue: not null }) return;
+        if (_viewModel?.IsRefreshingLanguageOptions == true) return;
         _viewModel?.SaveLanguageSettings();
+    }
+
+    private void MonitorSetting_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox { IsLoaded: true, SelectedIndex: >= 0 }) return;
+        _viewModel?.SelectMonitor();
+    }
+
+    private void WindowSetting_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox { IsLoaded: true, SelectedValue: not null }) return;
+        _viewModel?.SelectGameWindow();
     }
 
     private void VoiceSetting_Changed(object sender, RoutedEventArgs e)
