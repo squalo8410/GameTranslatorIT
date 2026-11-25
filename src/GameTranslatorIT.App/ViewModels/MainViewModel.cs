@@ -32,6 +32,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private bool _languageRefreshRunning;
     private bool _autoStartAttempted;
     private bool _isRefreshingLanguageOptions;
+    private bool _suppressCaptureModeAutoSwitch;
     private bool _isRunning;
     private bool _forceVoice;
     private bool _disposed;
@@ -694,13 +695,23 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void RefreshDevices()
     {
-        Monitors.Clear();
-        foreach (var monitor in Win32DisplayEnumerator.GetMonitors()) Monitors.Add(monitor);
-        Windows.Clear();
-        foreach (var window in Win32DisplayEnumerator.GetWindows()) Windows.Add(window);
+        // Ricaricare le collection può far scattare SelectionChanged: in quel caso
+        // non deve cambiare la modalità di cattura scelta dall'utente.
+        _suppressCaptureModeAutoSwitch = true;
+        try
+        {
+            Monitors.Clear();
+            foreach (var monitor in Win32DisplayEnumerator.GetMonitors()) Monitors.Add(monitor);
+            Windows.Clear();
+            foreach (var window in Win32DisplayEnumerator.GetWindows()) Windows.Add(window);
 
-        if (Settings.SelectedMonitorIndex >= Monitors.Count)
-            Settings.SelectedMonitorIndex = 0;
+            if (Settings.SelectedMonitorIndex >= Monitors.Count)
+                Settings.SelectedMonitorIndex = 0;
+        }
+        finally
+        {
+            _suppressCaptureModeAutoSwitch = false;
+        }
 
         AppendLog($"Dispositivi aggiornati: {Monitors.Count} monitor, {Windows.Count} finestre.");
     }
@@ -879,7 +890,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Scegliere un monitor attiva subito la cattura a schermo intero.</summary>
     public void SelectMonitor()
     {
-        if (Settings.CaptureMode == CaptureMode.FullScreen) return;
+        if (_suppressCaptureModeAutoSwitch || Settings.CaptureMode == CaptureMode.FullScreen) return;
         Settings.CaptureMode = CaptureMode.FullScreen;
         SaveAndRestartIfRunning("Cattura su schermo intero attivata dalla scelta del monitor.");
     }
@@ -887,7 +898,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     /// <summary>Scegliere una finestra attiva subito la cattura della finestra di gioco.</summary>
     public void SelectGameWindow()
     {
-        if (Settings.CaptureMode == CaptureMode.GameWindow) return;
+        if (_suppressCaptureModeAutoSwitch || Settings.CaptureMode == CaptureMode.GameWindow) return;
         Settings.CaptureMode = CaptureMode.GameWindow;
         SaveAndRestartIfRunning("Cattura della finestra di gioco attivata dalla scelta della finestra.");
     }
