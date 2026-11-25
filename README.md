@@ -2,7 +2,7 @@
 
 Software desktop Windows che rileva i sottotitoli dei videogiochi in 58 lingue, li traduce in qualsiasi altra lingua supportata in tempo reale e mostra il risultato in un overlay trasparente sopra il gioco.
 
-**Stato:** FASE 1–10 completate. EXE classico, MSIX firmato, copia portable, aggiornamenti automatici via GitHub Releases e supporto completo alle lingue richieste (versione 1.0.4).
+**Stato:** FASE 1–10 completate. EXE classico, MSIX firmato, copia portable, aggiornamenti automatici via GitHub Releases e supporto completo alle lingue richieste (versione 1.0.5).
 
 ---
 
@@ -78,7 +78,7 @@ Tutti gli output sono in `dist\installer\`.
 
 ### EXE classico — scegli tu la cartella
 
-`GameTranslatorIT-Setup-1.0.4.exe` (circa 55 MB), interfaccia solo in italiano.
+`GameTranslatorIT-Setup-1.0.5.exe` (circa 55 MB), interfaccia solo in italiano.
 Durante l'installazione compare la pagina **Cartella di destinazione**: puoi scegliere qualsiasi cartella. Il predefinito è `%LOCALAPPDATA%\Programs\GameTranslatorIT`, scrivibile senza diritti di amministratore.
 Al termine puoi installare il motore di traduzione locale e avviare l'app.
 
@@ -105,7 +105,7 @@ dotnet restore installer\MSIX\MsixTools.csproj
 
 ### Copia portable — scegli tu la cartella
 
-`GameTranslatorIT-Portable-1.0.4.zip` contiene la cartella `GameTranslatorIT` con dentro `GameTranslatorIT.App.exe` e `Avvia GameTranslator IT.cmd`: estrai lo ZIP dove vuoi e avvia dal launcher. Nessuna installazione, nessun registro modificato.
+`GameTranslatorIT-Portable-1.0.5.zip` contiene la cartella `GameTranslatorIT` con dentro `GameTranslatorIT.App.exe` e `Avvia GameTranslator IT.cmd`: estrai lo ZIP dove vuoi e avvia dal launcher. Nessuna installazione, nessun registro modificato.
 
 `installer\Portable\CopiaPortable.cmd` fa la stessa cosa con una finestra di selezione cartella.
 

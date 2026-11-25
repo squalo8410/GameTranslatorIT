@@ -122,8 +122,6 @@
                         <StackPanel>
                             <RadioButton GroupName="CaptureMode" Content="Schermo intero / monitor selezionato"
                                          IsChecked="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.FullScreen}}" />
-                            <RadioButton GroupName="CaptureMode" Content="Finestra di gioco selezionabile"
-                                         IsChecked="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.GameWindow}}" />
                             <TextBlock Text="Monitor" Style="{StaticResource Muted}" Margin="0,12,0,4" />
                             <ComboBox ItemsSource="{Binding Monitors}" DisplayMemberPath="Name"
                                       SelectedIndex="{Binding Settings.SelectedMonitorIndex}">
@@ -144,7 +142,9 @@
 
                     <Expander Header="GIOCO" Style="{StaticResource CategoryExpander}">
                         <StackPanel>
-                            <TextBlock Text="Finestra del gioco da leggere" Style="{StaticResource Muted}" Margin="0,0,0,6" />
+                            <RadioButton GroupName="CaptureMode" Content="Finestra di gioco selezionabile"
+                                         IsChecked="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.GameWindow}}" />
+                            <TextBlock Text="Finestra del gioco da leggere" Style="{StaticResource Muted}" Margin="0,8,0,6" />
                             <ComboBox ItemsSource="{Binding Windows}" DisplayMemberPath="Title"
                                       SelectedValuePath="Title" SelectedValue="{Binding Settings.SelectedWindowTitle}">
                                 <ComboBox.Style>
@@ -445,7 +445,11 @@
             </StackPanel>
         </Grid>
 
-        <TextBlock Grid.Row="2" Text="creato da squalo8410 e alphakill87" HorizontalAlignment="Right"
-                   Foreground="{StaticResource App.TextMuted}" FontSize="12" Margin="0,10,0,0" />
+        <DockPanel Grid.Row="2" Margin="0,10,0,0" LastChildFill="False">
+            <TextBlock DockPanel.Dock="Left" Text="{Binding CurrentVersion, StringFormat=Versione {0}}"
+                       Foreground="{StaticResource App.TextMuted}" FontSize="12" />
+            <TextBlock DockPanel.Dock="Right" Text="creato da squalo8410 e alphakill87"
+                       Foreground="{StaticResource App.TextMuted}" FontSize="12" />
+        </DockPanel>
     </Grid>
 </Window>
