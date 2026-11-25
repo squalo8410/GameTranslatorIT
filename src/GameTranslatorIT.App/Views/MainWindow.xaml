@@ -1,0 +1,451 @@
+<Window x:Class="GameTranslatorIT.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:GameTranslatorIT.Core.Models;assembly=GameTranslatorIT.Core"
+        Title="GameTranslator IT" Height="800" Width="1120"
+        MinHeight="680" MinWidth="980" WindowStartupLocation="CenterScreen">
+
+    <Window.Resources>
+        <DataTemplate x:Key="LanguageItemTemplate">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="{Binding Code}" Foreground="White" FontWeight="SemiBold" />
+                <TextBlock Text=" — " Foreground="White" />
+                <TextBlock Text="{Binding DisplayName}" Foreground="White" />
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- Intestazione delle categorie del menu laterale. -->
+        <Style x:Key="CategoryHeaderButton" TargetType="ToggleButton">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bd" Background="Transparent" CornerRadius="9" Padding="14,11">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <ContentPresenter Grid.Column="0" VerticalAlignment="Center"
+                                                  TextElement.Foreground="{StaticResource App.Text}"
+                                                  TextElement.FontSize="14" TextElement.FontWeight="SemiBold" />
+                                <Path Grid.Column="1" x:Name="Arrow" Data="M 0 0 L 5 5 L 10 0"
+                                      Stroke="{StaticResource App.Accent}" StrokeThickness="2"
+                                      Fill="Transparent" VerticalAlignment="Center" Margin="10,0,0,0"
+                                      RenderTransformOrigin="0.5,0.5">
+                                    <Path.RenderTransform>
+                                        <RotateTransform Angle="0" />
+                                    </Path.RenderTransform>
+                                </Path>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#FF202830" />
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Arrow" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="180" />
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Categoria a tendina: clicchi sull'intestazione e si apre il relativo pannello. -->
+        <Style x:Key="CategoryExpander" TargetType="Expander">
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Expander">
+                        <Border x:Name="Outer" Background="{StaticResource App.Surface}"
+                                BorderBrush="{StaticResource App.Border}" BorderThickness="1" CornerRadius="10">
+                            <StackPanel>
+                                <ToggleButton x:Name="HeaderButton" Style="{StaticResource CategoryHeaderButton}"
+                                              Content="{TemplateBinding Header}"
+                                              IsChecked="{Binding IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
+                                <ContentPresenter x:Name="Content" Margin="14,0,14,14" Visibility="Collapsed" />
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="True">
+                                <Setter TargetName="Content" Property="Visibility" Value="Visible" />
+                                <Setter TargetName="Outer" Property="BorderBrush" Value="{StaticResource App.AccentDark}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Intestazione -->
+        <Grid Grid.Row="0" Margin="0,0,0,18">
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="GameTranslator IT" Style="{StaticResource Heading}" />
+                <TextBlock Text="Sottotitoli inglesi tradotti in italiano in tempo reale, direttamente sopra il gioco."
+                           Style="{StaticResource Muted}" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Border Width="10" Height="10" CornerRadius="5" Margin="0,0,10,0"
+                        Background="{Binding CaptureStatus.State, Converter={StaticResource StateBrush}}" />
+                <TextBlock Text="{Binding StatusText}" FontSize="14" FontWeight="SemiBold"
+                           Foreground="{StaticResource App.Accent}" VerticalAlignment="Center" />
+            </StackPanel>
+        </Grid>
+
+        <!-- Contenuto -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="330" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Colonna sinistra: menu a categorie espandibili -->
+            <ScrollViewer Grid.Column="0" Margin="0,0,16,0" VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled">
+                <StackPanel>
+
+                    <Expander Header="SCHERMI" Style="{StaticResource CategoryExpander}" IsExpanded="True">
+                        <StackPanel>
+                            <RadioButton GroupName="CaptureMode" Content="Schermo intero / monitor selezionato"
+                                         IsChecked="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.FullScreen}}" />
+                            <RadioButton GroupName="CaptureMode" Content="Finestra di gioco selezionabile"
+                                         IsChecked="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.GameWindow}}" />
+                            <TextBlock Text="Monitor" Style="{StaticResource Muted}" Margin="0,12,0,4" />
+                            <ComboBox ItemsSource="{Binding Monitors}" DisplayMemberPath="Name"
+                                      SelectedIndex="{Binding Settings.SelectedMonitorIndex}">
+                                <ComboBox.Style>
+                                    <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.GameWindow}}" Value="True">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ComboBox.Style>
+                            </ComboBox>
+                            <Button Content="Aggiorna monitor e finestre" Command="{Binding RefreshDevicesCommand}"
+                                    HorizontalAlignment="Left" Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Expander>
+
+                    <Expander Header="GIOCO" Style="{StaticResource CategoryExpander}">
+                        <StackPanel>
+                            <TextBlock Text="Finestra del gioco da leggere" Style="{StaticResource Muted}" Margin="0,0,0,6" />
+                            <ComboBox ItemsSource="{Binding Windows}" DisplayMemberPath="Title"
+                                      SelectedValuePath="Title" SelectedValue="{Binding Settings.SelectedWindowTitle}">
+                                <ComboBox.Style>
+                                    <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.FullScreen}}" Value="True">
+                                                <Setter Property="IsEnabled" Value="False" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ComboBox.Style>
+                            </ComboBox>
+                            <Button Content="Aggiorna elenco finestre" Command="{Binding RefreshDevicesCommand}"
+                                    HorizontalAlignment="Left" Margin="0,10,0,0" />
+                        </StackPanel>
+                    </Expander>
+
+                    <Expander Header="SELEZIONE" Style="{StaticResource CategoryExpander}">
+                        <StackPanel>
+                            <CheckBox Content="Usa più riquadri selezionati" IsChecked="{Binding UseCaptureRegions}"
+                                      Margin="0,0,0,4" />
+                            <TextBlock Text="{Binding RegionsSummary}" Style="{StaticResource Muted}" Margin="0,0,0,8" />
+                            <DockPanel Margin="0,0,0,8" LastChildFill="False">
+                                <TextBlock Text="Riquadri" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                <ComboBox ItemsSource="{Binding RegionCounts}" SelectedItem="{Binding RegionCount}"
+                                          Width="70" DockPanel.Dock="Right" />
+                            </DockPanel>
+                            <Button Content="Crea / modifica selezione" Command="{Binding SelectRegionCommand}"
+                                    CommandParameter="{Binding Regions[0]}" HorizontalAlignment="Stretch"
+                                    Margin="0,0,0,8" />
+                            <Button Content="Aggiungi riquadro" Command="{Binding AddRegionCommand}"
+                                    HorizontalAlignment="Left" Margin="0,0,0,8" />
+                            <ItemsControl ItemsSource="{Binding Regions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#18FFFFFF" CornerRadius="4" Padding="6" Margin="0,0,0,4">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <CheckBox Grid.Column="0" IsChecked="{Binding Enabled, Mode=OneWay}"
+                                                          Checked="RegionEnabled_Changed" Unchecked="RegionEnabled_Changed"
+                                                          ToolTip="Attiva questo riquadro" Margin="0,0,6,0" />
+                                                <CheckBox Grid.Column="1" IsChecked="{Binding Muted, Mode=OneWay}"
+                                                          Checked="RegionMute_Changed" Unchecked="RegionMute_Changed"
+                                                          ToolTip="Silenziato" Margin="0,0,6,0" />
+                                                <TextBlock Grid.Column="2" Text="{Binding Name}" Foreground="White"
+                                                           FontWeight="SemiBold" VerticalAlignment="Center" />
+                                                <Button Grid.Column="3" Content="Scegli" Click="SelectRegion_Click"
+                                                        Margin="0,0,4,0" Padding="6,2" FontSize="11" />
+                                                <Button Grid.Column="4" Content="Modalità" Click="CycleMode_Click"
+                                                        Padding="6,2" FontSize="11" />
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <TextBlock Text="F1–F8: muto · Ctrl+F1–F8: seleziona · Ctrl+Shift+F1–F8: modalità"
+                                       Style="{StaticResource Muted}" Margin="0,8,0,0" />
+                        </StackPanel>
+                    </Expander>
+
+                    <Expander Header="DISPOSITIVI IN USCITA" Style="{StaticResource CategoryExpander}">
+                        <StackPanel>
+                            <TextBlock Text="Dispositivo audio di uscita" Style="{StaticResource Muted}" Margin="0,0,0,4" />
+                            <ComboBox ItemsSource="{Binding VisibleAudioOutputDevices}"
+                                      SelectedItem="{Binding ChosenAudioOutputDevice}"
+                                      DisplayMemberPath="DisplayName"
+                                      ToolTip="Qualsiasi uscita è selezionabile: se non è attiva l'app proverà a collegarla">
+                                <ComboBox.ItemContainerStyle>
+                                    <Style TargetType="ComboBoxItem">
+                                        <Setter Property="ToolTip" Value="{Binding AvailabilityHint}" />
+                                    </Style>
+                                </ComboBox.ItemContainerStyle>
+                            </ComboBox>
+                            <CheckBox Content="Mostra solo dispositivi attivi"
+                                      IsChecked="{Binding Settings.ShowOnlyActiveAudioDevices}"
+                                      Checked="ActiveAudioFilter_Changed" Unchecked="ActiveAudioFilter_Changed"
+                                      Margin="0,6,0,0" />
+                            <Button Content="Scegli dispositivo…" Command="{Binding OpenAudioDeviceWindowCommand}"
+                                    HorizontalAlignment="Left" Margin="0,8,0,0" />
+                            <Button Content="Aggiorna dispositivi audio" Command="{Binding RefreshAudioDevicesCommand}"
+                                    HorizontalAlignment="Left" Margin="0,8,0,0" />
+                            <Button Content="Prova voce" Command="{Binding TestVoiceCommand}"
+                                    HorizontalAlignment="Left" Margin="0,8,0,10" />
+                            <TextBlock Text="Volume voce traduttore" Style="{StaticResource Muted}" Margin="0,0,0,2" />
+                            <DockPanel Margin="0,0,0,8">
+                                <Slider x:Name="VoiceVolumeSlider" Minimum="0" Maximum="100" SmallChange="1" LargeChange="10"
+                                        Value="{Binding Settings.VoiceVolume}" ValueChanged="VoiceSetting_Changed" />
+                                <TextBlock Text="{Binding Value, ElementName=VoiceVolumeSlider, StringFormat={}{0}%}"
+                                           Margin="12,0,0,0" VerticalAlignment="Center" MinWidth="42" />
+                            </DockPanel>
+                            <TextBlock Text="{Binding VolumeLabel}" Style="{StaticResource Muted}" Margin="0,4,0,2" />
+                            <DockPanel>
+                                <Slider Minimum="0" Maximum="100" SmallChange="1" LargeChange="10"
+                                        Value="{Binding SystemVolume, Mode=TwoWay}" />
+                                <TextBlock Text="{Binding SystemVolume, StringFormat={}{0}%}"
+                                           Margin="12,0,0,0" VerticalAlignment="Center" MinWidth="42" />
+                            </DockPanel>
+                        </StackPanel>
+                    </Expander>
+
+                    <Expander Header="VELOCITÀ" Style="{StaticResource CategoryExpander}">
+                        <StackPanel>
+                            <TextBlock Text="Velocità di lettura della voce" Style="{StaticResource Muted}" Margin="0,0,0,4" />
+                            <DockPanel Margin="0,0,0,12">
+                                <Slider x:Name="VoiceRateSlider" Minimum="50" Maximum="200" SmallChange="5" LargeChange="25"
+                                        Value="{Binding Settings.VoiceRate}" ValueChanged="VoiceSetting_Changed" />
+                                <TextBlock Text="{Binding Value, ElementName=VoiceRateSlider, StringFormat={}{0}%}"
+                                           Margin="12,0,0,0" VerticalAlignment="Center" MinWidth="48" />
+                            </DockPanel>
+                            <TextBlock Text="Intervallo massimo tra due letture (ms)" Style="{StaticResource Muted}" Margin="0,0,0,4" />
+                            <DockPanel>
+                                <Slider x:Name="ReadIntervalSlider" Minimum="100" Maximum="2000" SmallChange="50" LargeChange="250"
+                                        Value="{Binding Settings.UpdateIntervalMs}" ValueChanged="CaptureSetting_Changed" />
+                                <TextBlock Text="{Binding Value, ElementName=ReadIntervalSlider, StringFormat={}{0} ms}"
+                                           Margin="12,0,0,0" VerticalAlignment="Center" MinWidth="62" />
+                            </DockPanel>
+                            <TextBlock Text="Meno ms = lettura più rapida. Più ms = lettura più distanziata."
+                                       Style="{StaticResource Muted}" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Expander>
+
+                    <Expander Header="LINGUE" Style="{StaticResource CategoryExpander}">
+                        <StackPanel>
+                            <TextBlock Text="Lingua sorgente" Style="{StaticResource Muted}" Margin="0,0,0,4" />
+                            <ComboBox ItemsSource="{Binding SourceLanguageOptions}" ItemTemplate="{StaticResource LanguageItemTemplate}"
+                                      SelectedValuePath="Code" SelectedValue="{Binding Settings.SourceLanguage}"
+                                      SelectionChanged="LanguageSetting_Changed"
+                                      ToolTip="Testo letto dal gioco. Il codice è quello salvato nelle impostazioni" />
+                            <TextBlock Text="Lingua target (traduzione)" Style="{StaticResource Muted}" Margin="0,10,0,4" />
+                            <ComboBox ItemsSource="{Binding TargetLanguageOptions}" ItemTemplate="{StaticResource LanguageItemTemplate}"
+                                      SelectedValuePath="Code" SelectedValue="{Binding Settings.TargetLanguage}"
+                                      SelectionChanged="LanguageSetting_Changed"
+                                      ToolTip="Lingua in cui viene tradotto il testo" />
+                            <TextBlock Text="{Binding LanguageHint}" Style="{StaticResource Muted}"
+                                       TextWrapping="Wrap" Margin="0,10,0,0" />
+                        </StackPanel>
+                    </Expander>
+
+                    <Expander Header="CONTROLLO" Style="{StaticResource CategoryExpander}">
+                        <StackPanel>
+                            <Button Content="AVVIA TRADUZIONE" Style="{StaticResource PrimaryButton}"
+                                    Command="{Binding StartCommand}" Margin="0,0,0,8" />
+                            <Button Content="INTERROMPI" Style="{StaticResource StopButton}"
+                                    Command="{Binding StopCommand}" Margin="0,0,0,12" />
+                            <CheckBox Content="Leggi i sottotitoli a voce"
+                                      IsChecked="{Binding VoiceEnabled, Mode=TwoWay}"
+                                      Checked="VoiceSetting_Changed" Unchecked="VoiceSetting_Changed"
+                                      Margin="0,0,0,6" />
+                            <ToggleButton Content="{Binding VoiceToggleLabel}"
+                                          IsChecked="{Binding VoiceEnabled, Mode=TwoWay}"
+                                          Margin="0,0,0,8" Padding="8,6" />
+                            <Button Content="Pannello di controllo" Command="{Binding OpenControlPanelCommand}" Margin="0,0,0,8" />
+                            <Button Content="Verifica traduzione locale" Command="{Binding TestTranslationCommand}" Margin="0,0,0,8" />
+                            <Button Content="Impostazioni" Command="{Binding OpenSettingsCommand}" Margin="0,0,0,8" />
+                            <Button Content="Sblocca / blocca overlay" Command="{Binding ToggleOverlayEditCommand}"
+                                    Margin="0,0,0,8" />
+                            <Button Content="Posizione / dimensione overlay…"
+                                    Command="{Binding OpenOverlayGeometryWindowCommand}"
+                                    Margin="0,0,0,8" />
+                            <Button Content="Controlla aggiornamenti"
+                                    Command="{Binding CheckForUpdatesCommand}" />
+                            <TextBlock Text="{Binding UpdateStatusText}" Style="{StaticResource Muted}"
+                                       TextWrapping="Wrap" Margin="0,6,0,0" />
+                        </StackPanel>
+                    </Expander>
+                </StackPanel>
+            </ScrollViewer>
+
+            <!-- Colonna destra -->
+            <StackPanel Grid.Column="1">
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="CONTROLLO RAPIDO" Style="{StaticResource SubHeading}" />
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Button Content="AVVIA TRADUZIONE" Style="{StaticResource PrimaryButton}"
+                                    Command="{Binding StartCommand}" Margin="0,0,10,0" />
+                            <Button Content="INTERROMPI" Style="{StaticResource StopButton}"
+                                    Command="{Binding StopCommand}" />
+                        </StackPanel>
+
+                        <TextBlock Text="Dispositivo audio di uscita" Style="{StaticResource Muted}" Margin="0,0,0,4" />
+                        <ComboBox ItemsSource="{Binding VisibleAudioOutputDevices}"
+                                  SelectedItem="{Binding ChosenAudioOutputDevice}"
+                                  DisplayMemberPath="DisplayName"
+                                  ToolTip="Qualsiasi uscita è selezionabile: se non è attiva l'app proverà a collegarla">
+                            <ComboBox.ItemContainerStyle>
+                                <Style TargetType="ComboBoxItem">
+                                    <Setter Property="ToolTip" Value="{Binding AvailabilityHint}" />
+                                </Style>
+                            </ComboBox.ItemContainerStyle>
+                        </ComboBox>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button Content="Scegli dispositivo…" Command="{Binding OpenAudioDeviceWindowCommand}"
+                                    Margin="0,0,10,0" />
+                            <Button Content="Aggiorna dispositivi audio" Command="{Binding RefreshAudioDevicesCommand}"
+                                    Margin="0,0,10,0" />
+                            <Button Content="Prova voce" Command="{Binding TestVoiceCommand}" />
+                        </StackPanel>
+                        <ToggleButton Content="{Binding VoiceToggleLabel}" IsChecked="{Binding VoiceEnabled, Mode=TwoWay}"
+                                      HorizontalAlignment="Left" Margin="0,10,0,0" Padding="10,6" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="STATO COMPONENTI" Style="{StaticResource SubHeading}" />
+
+                        <Grid Margin="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="10" Height="10" CornerRadius="5" VerticalAlignment="Center"
+                                    Background="{Binding CaptureStatus.State, Converter={StaticResource StateBrush}}" />
+                            <TextBlock Grid.Column="1" Text="Acquisizione" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="{Binding CaptureStatus.Message}"
+                                       Foreground="{StaticResource App.TextMuted}" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <Grid Margin="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="10" Height="10" CornerRadius="5" VerticalAlignment="Center"
+                                    Background="{Binding OcrStatus.State, Converter={StaticResource StateBrush}}" />
+                            <TextBlock Grid.Column="1" Text="OCR" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="{Binding OcrStatus.Message}"
+                                       Foreground="{StaticResource App.TextMuted}" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <Grid Margin="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="10" Height="10" CornerRadius="5" VerticalAlignment="Center"
+                                    Background="{Binding TranslationStatus.State, Converter={StaticResource StateBrush}}" />
+                            <TextBlock Grid.Column="1" Text="Traduzione" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="{Binding TranslationStatus.Message}"
+                                       Foreground="{StaticResource App.TextMuted}" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <Grid Margin="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="10" Height="10" CornerRadius="5" VerticalAlignment="Center"
+                                    Background="{Binding VoiceStatus.State, Converter={StaticResource StateBrush}}" />
+                            <TextBlock Grid.Column="1" Text="Voce" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="{Binding VoiceStatus.Message}"
+                                       Foreground="{StaticResource App.TextMuted}" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <Grid Margin="0,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="16" />
+                                <ColumnDefinition Width="130" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Width="10" Height="10" CornerRadius="5" VerticalAlignment="Center"
+                                    Background="{Binding UpdateStatus.State, Converter={StaticResource StateBrush}}" />
+                            <TextBlock Grid.Column="1" Text="Aggiornamenti" FontWeight="SemiBold" />
+                            <TextBlock Grid.Column="2" Text="{Binding UpdateStatus.Message}"
+                                       Foreground="{StaticResource App.TextMuted}" TextWrapping="Wrap" />
+                        </Grid>
+
+                        <TextBlock Margin="0,14,0,0" Style="{StaticResource Muted}">
+                            <Run Text="Sottotitoli rilevati: " /><Run Text="{Binding SubtitleCount, Mode=OneWay}" FontWeight="SemiBold" />
+                            <Run Text="    Traduzioni completate: " /><Run Text="{Binding TranslationCount, Mode=OneWay}" FontWeight="SemiBold" />
+                        </TextBlock>
+                        <TextBlock Text="Ultimo testo inglese" Style="{StaticResource Muted}" Margin="0,12,0,2" />
+                        <TextBlock Text="{Binding LastSourceText}" TextWrapping="Wrap" Foreground="{StaticResource App.TextMuted}" />
+                        <TextBlock Text="Ultima traduzione italiana" Style="{StaticResource Muted}" Margin="0,10,0,2" />
+                        <TextBlock Text="{Binding LastTranslatedText}" TextWrapping="Wrap"
+                                   Foreground="{StaticResource App.Accent}" FontWeight="SemiBold" />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}">
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Top" Text="REGISTRO EVENTI" Style="{StaticResource SubHeading}" />
+                        <ListBox ItemsSource="{Binding LogEntries}" Height="300"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled" />
+                    </DockPanel>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <TextBlock Grid.Row="2" Text="creato da squalo8410 e alphakill87" HorizontalAlignment="Right"
+                   Foreground="{StaticResource App.TextMuted}" FontSize="12" Margin="0,10,0,0" />
+    </Grid>
+</Window>

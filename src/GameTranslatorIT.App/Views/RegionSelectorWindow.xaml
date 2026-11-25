@@ -1,0 +1,86 @@
+<Window x:Class="GameTranslatorIT.App.Views.RegionSelectorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Seleziona riquadro" WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent" ShowInTaskbar="False" Topmost="True" ResizeMode="NoResize"
+        AutomationProperties.AutomationId="RegionSelector" AutomationProperties.Name="Seleziona riquadro">
+
+    <Window.Resources>
+        <Style x:Key="ResizeGrip" TargetType="Border">
+            <Setter Property="Width" Value="18" />
+            <Setter Property="Height" Value="18" />
+            <Setter Property="Background" Value="#FFFF9A2E" />
+            <Setter Property="BorderBrush" Value="#FF2A1600" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Cursor" Value="SizeNWSE" />
+            <EventSetter Event="MouseLeftButtonDown" Handler="Grip_MouseLeftButtonDown" />
+        </Style>
+    </Window.Resources>
+
+    <Border Margin="8" CornerRadius="10" BorderThickness="2" BorderBrush="#FFFF9A2E"
+            Background="#F0101014" Padding="12">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Margin="0,0,0,10">
+                <DockPanel LastChildFill="False" Margin="0,0,0,8">
+                    <TextBlock Text="Spostalo con il trascinamento o con X/Y, cambia dimensione con le maniglie o con larghezza/altezza."
+                               Foreground="#FFFFFFFF" FontSize="14" FontWeight="SemiBold"
+                               VerticalAlignment="Center" Margin="0,0,16,0" />
+                    <ComboBox x:Name="RegionCombo" Width="180" DisplayMemberPath="Name"
+                              DockPanel.Dock="Right" Margin="0,0,10,0"
+                              ToolTip="Riquadro da modificare" SelectionChanged="RegionCombo_SelectionChanged" />
+                    <Button Content="Rimuovi selezione" Click="Remove_Click" DockPanel.Dock="Right" Margin="0,0,10,0" />
+                    <Button Content="Salva e chiudi" Click="Save_Click" DockPanel.Dock="Right" Margin="0,0,10,0" />
+                </DockPanel>
+                <DockPanel LastChildFill="False" Margin="0,0,0,8">
+                    <TextBlock Text="Posizione (pixel):" Foreground="#FFC9D4DE" VerticalAlignment="Center"
+                               Margin="0,0,8,0" />
+                    <TextBox x:Name="LeftBox" Width="64" VerticalAlignment="Center" Margin="0,0,6,0"
+                             ToolTip="Distanza dal bordo sinistro, in pixel" />
+                    <TextBlock Text="X" Foreground="#FFC9D4DE" VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <TextBox x:Name="TopBox" Width="64" VerticalAlignment="Center" Margin="0,0,6,0"
+                             ToolTip="Distanza dal bordo superiore, in pixel" />
+                    <TextBlock Text="Y" Foreground="#FFC9D4DE" VerticalAlignment="Center" Margin="0,0,10,0" />
+                </DockPanel>
+                <DockPanel LastChildFill="False">
+                    <TextBlock Text="Dimensione (pixel):" Foreground="#FFC9D4DE" VerticalAlignment="Center"
+                               Margin="0,0,8,0" />
+                    <TextBox x:Name="WidthBox" Width="64" VerticalAlignment="Center" Margin="0,0,6,0"
+                             ToolTip="Larghezza in pixel" />
+                    <TextBlock Text="×" Foreground="#FFC9D4DE" VerticalAlignment="Center" Margin="0,0,6,0" />
+                    <TextBox x:Name="HeightBox" Width="64" VerticalAlignment="Center" Margin="0,0,10,0"
+                             ToolTip="Altezza in pixel" />
+                    <Button Content="Applica posizione e dimensione" Click="ApplyGeometry_Click" Margin="0,0,12,0" />
+                    <TextBlock x:Name="SizeLabel" Foreground="#FFFF9A2E" FontSize="13"
+                               FontWeight="SemiBold" VerticalAlignment="Center" />
+                </DockPanel>
+            </StackPanel>
+
+            <Canvas x:Name="SelectionCanvas" Grid.Row="1" Background="Transparent"
+                    MouseLeftButtonDown="Canvas_MouseLeftButtonDown"
+                    MouseMove="Canvas_MouseMove"
+                    MouseLeftButtonUp="Canvas_MouseLeftButtonUp">
+                <Image x:Name="Preview" Stretch="None" IsHitTestVisible="False" />
+                <Border x:Name="SelectionRect" Visibility="Collapsed" IsHitTestVisible="False"
+                        BorderBrush="#FFFF9A2E" BorderThickness="3" Background="#33FF9A2E" />
+                <Border x:Name="SelectionFrame" Visibility="Collapsed" Cursor="SizeAll"
+                        BorderBrush="#FFFF9A2E" BorderThickness="3" Background="#22FF9A2E"
+                        MouseLeftButtonDown="Frame_MouseLeftButtonDown">
+                    <Grid>
+                        <Border Style="{StaticResource ResizeGrip}" Tag="NW" />
+                        <Border Style="{StaticResource ResizeGrip}" Tag="NE" HorizontalAlignment="Right" Cursor="SizeNESW" />
+                        <Border Style="{StaticResource ResizeGrip}" Tag="SW" VerticalAlignment="Bottom" Cursor="SizeNESW" />
+                        <Border Style="{StaticResource ResizeGrip}" Tag="SE"
+                                HorizontalAlignment="Right" VerticalAlignment="Bottom" />
+                    </Grid>
+                </Border>
+            </Canvas>
+        </Grid>
+    </Border>
+</Window>

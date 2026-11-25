@@ -1,0 +1,6 @@
+# Una voce per riga: inglese=italiano
+# Le sostituzioni vengono applicate dopo la traduzione.
+Sherlock=Sherlock
+Watson=Watson
+the Strip=la Strip
+Impostore=Impostore

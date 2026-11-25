@@ -1,0 +1,26 @@
+# Output di compilazione
+[Bb]in/
+[Oo]bj/
+.vs/
+.vscode/
+
+# Artefatti di rilascio (solo le note di rilascio restano versionate)
+dist/*
+!dist/Releases/
+dist/Releases/*
+!dist/Releases/v*/
+dist/Releases/v*/*
+!dist/Releases/v*/release-notes.md
+
+# Certificati e chiavi: non devono mai finire nel repository
+*.pfx
+*.snk
+*.key
+*.pem
+
+# File utente di Visual Studio / Windows
+*.user
+*.suo
+*.userosscache
+Thumbs.db
+Desktop.ini

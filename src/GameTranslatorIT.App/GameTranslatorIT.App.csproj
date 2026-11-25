@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationIcon />
+    <StartupObject>GameTranslatorIT.App.App</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GameTranslatorIT.Core\GameTranslatorIT.Core.csproj" />
+    <ProjectReference Include="..\GameTranslatorIT.Capture\GameTranslatorIT.Capture.csproj" />
+    <ProjectReference Include="..\GameTranslatorIT.Ocr\GameTranslatorIT.Ocr.csproj" />
+    <ProjectReference Include="..\GameTranslatorIT.Translation\GameTranslatorIT.Translation.csproj" />
+    <ProjectReference Include="..\GameTranslatorIT.Overlay\GameTranslatorIT.Overlay.csproj" />
+    <ProjectReference Include="..\GameTranslatorIT.Tts\GameTranslatorIT.Tts.csproj" />
+  </ItemGroup>
+
+</Project>
