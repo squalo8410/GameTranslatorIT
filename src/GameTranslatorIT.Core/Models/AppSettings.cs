@@ -153,6 +153,13 @@ public sealed class AppSettings
     /// <summary>Versione che l'utente ha scelto di ignorare.</summary>
     public string? SkippedVersion { get; set; }
 
+    /// <summary>
+    /// Token GitHub personale inserito dall'utente per leggere release di repository privati.
+    /// Resta solo nel profilo Windows dell'utente: non è mai incluso negli asset pubblicati.
+    /// La variabile di ambiente GITHUB_TOKEN, se impostata, ha la priorità.
+    /// </summary>
+    public string GitHubToken { get; set; } = string.Empty;
+
     private static readonly JsonSerializerOptions CloneOptions = new()
     {
         Converters = { new JsonStringEnumConverter() }

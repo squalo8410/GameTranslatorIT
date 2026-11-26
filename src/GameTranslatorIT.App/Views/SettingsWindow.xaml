@@ -223,7 +223,7 @@
                         <TextBlock Text="RIQUADRI DI LETTURA" Style="{StaticResource SubHeading}" />
                         <CheckBox Content="Usa i riquadri selezionati invece di un'unica area"
                                   IsChecked="{Binding UseCaptureRegions}" Margin="0,8,0,4" />
-                        <CheckBox Content="Abilita i tasti rapidi globali (F1–F8)"
+                        <CheckBox Content="Abilita i tasti rapidi globali (F1–F12)"
                                   IsChecked="{Binding HotkeysEnabled}" Margin="0,0,0,8" />
 
                         <TextBlock Text="Numero di riquadri (4 o 6 consigliati)" Style="{StaticResource Muted}" />
@@ -333,10 +333,21 @@
                                      Text="{Binding UpdateCheckIntervalHours, UpdateSourceTrigger=PropertyChanged}"
                                      VerticalAlignment="Center" ToolTip="Da 1 a 168 ore" />
                         </Grid>
+                        <TextBlock Text="Token GitHub (solo per release private)" Style="{StaticResource Muted}"
+                                   Margin="0,10,0,4" />
+                        <DockPanel>
+                            <PasswordBox x:Name="GitHubTokenBox" PasswordChar="●" Width="360"
+                                         VerticalAlignment="Center"
+                                         ToolTip="Token personale con permesso di lettura del repository. Serve solo per release private." />
+                            <CheckBox x:Name="ShowGitHubTokenCheck" Content="Mostra" Margin="8,0,0,0"
+                                      VerticalAlignment="Center" Click="ShowGitHubToken_Changed" />
+                        </DockPanel>
                         <TextBlock Style="{StaticResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap">
                             La traduzione resta locale. Solo il controllo aggiornamenti contatta GitHub Releases;
-                            se la rete non è disponibile l'app continua a funzionare. Per un repository privato
-                            imposta la variabile GITHUB_TOKEN prima di avviare l'app.
+                            se la rete non è disponibile l'app continua a funzionare. Il token, se inserito, resta
+                            nel tuo profilo Windows e non viene mai incluso negli asset pubblicati. La variabile
+                            GITHUB_TOKEN, se presente, ha la priorità su questo campo. Una bozza privata non è
+                            rilevata dall'aggiornamento automatico: per scaricare da solo serve una release pubblicata.
                         </TextBlock>
                     </StackPanel>
                 </Border>

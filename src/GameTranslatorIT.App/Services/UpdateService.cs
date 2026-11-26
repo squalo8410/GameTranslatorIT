@@ -33,7 +33,14 @@ public sealed class UpdateService
         }
     }
 
-    public async Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default)
+    public Task<UpdateCheckResult> CheckAsync(CancellationToken cancellationToken = default)
+        => CheckAsync(null, cancellationToken);
+
+    /// <summary>
+    /// Verifica GitHub Releases. Il token è opzionale: serve solo per repository privati
+    /// e può arrivare dalle impostazioni locali o da GITHUB_TOKEN (quest'ultimo ha priorità).
+    /// </summary>
+    public async Task<UpdateCheckResult> CheckAsync(string? token, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -43,9 +50,9 @@ public sealed class UpdateService
             client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
             client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
 
-            var token = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
-            if (!string.IsNullOrWhiteSpace(token))
-                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Trim());
+            var resolvedToken = ResolveToken(token);
+            if (resolvedToken is not null)
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", resolvedToken);
 
             using var response = await client.GetAsync(apiUri, cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -55,11 +62,11 @@ public sealed class UpdateService
                 var message = response.StatusCode switch
                 {
                     HttpStatusCode.Unauthorized =>
-                        "GitHub ha rifiutato GITHUB_TOKEN. Controlla che il token sia valido e abbia accesso al repository privato.",
+                        "GitHub ha rifiutato il token. Controlla il token inserito in Impostazioni > Aggiornamenti (o la variabile GITHUB_TOKEN) e i suoi permessi di lettura.",
                     HttpStatusCode.NotFound =>
-                        "Repository o release non trovato. Per un repository privato imposta la variabile GITHUB_TOKEN prima di avviare l'app.",
+                        "Repository o release non trovato. Per un repository privato inserisci un token con accesso 'repo' in Impostazioni > Aggiornamenti (oppure imposta GITHUB_TOKEN).",
                     HttpStatusCode.Forbidden =>
-                        "GitHub nega l'accesso alla release. Controlla i permessi del token GITHUB_TOKEN.",
+                        "GitHub nega l'accesso alla release. Controlla i permessi del token inserito in Impostazioni > Aggiornamenti (o GITHUB_TOKEN).",
                     _ => $"GitHub ha risposto con {(int)response.StatusCode} {response.StatusCode}."
                 };
                 return new UpdateCheckResult(false, null, "Verifica non riuscita", message);
@@ -119,21 +126,30 @@ public sealed class UpdateService
         }
     }
 
-    public async Task DownloadAndApplyAsync(UpdateInfo info, IProgress<string>? progress, CancellationToken cancellationToken = default)
+    public Task DownloadAndApplyAsync(UpdateInfo info, IProgress<string>? progress, CancellationToken cancellationToken = default)
+        => DownloadAndApplyAsync(info, null, progress, cancellationToken);
+
+    /// <summary>Scarica e applica l'aggiornamento, autenticandosi quando serve per asset privati.</summary>
+    public async Task DownloadAndApplyAsync(
+        UpdateInfo info,
+        string? token,
+        IProgress<string>? progress,
+        CancellationToken cancellationToken = default)
     {
         var (_, allowLocal) = ResolveApiUri();
+        var resolvedToken = ResolveToken(token);
         var workDirectory = Path.Combine(Path.GetTempPath(), "GameTranslatorIT", "Updates", info.Version);
         Directory.CreateDirectory(workDirectory);
 
         progress?.Report("Download dell'aggiornamento in corso...");
-        var assetPath = await DownloadAsync(info.Asset, workDirectory, allowLocal, progress, cancellationToken).ConfigureAwait(false);
+        var assetPath = await DownloadAsync(info.Asset, workDirectory, allowLocal, resolvedToken, progress, cancellationToken).ConfigureAwait(false);
 
         var checksumAsset = info.AllAssets.FirstOrDefault(a =>
             string.Equals(a.Name, info.ChecksumAssetName, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidDataException($"Checksum '{info.ChecksumAssetName}' non trovato nella release.");
 
         progress?.Report("Download del checksum in corso...");
-        var checksumPath = await DownloadAsync(checksumAsset, workDirectory, allowLocal, progress, cancellationToken).ConfigureAwait(false);
+        var checksumPath = await DownloadAsync(checksumAsset, workDirectory, allowLocal, resolvedToken, progress, cancellationToken).ConfigureAwait(false);
 
         progress?.Report("Verifica SHA256 del file scaricato...");
         var expectedHash = await VerifySha256Async(assetPath, checksumPath, info.Asset.Size).ConfigureAwait(false);
@@ -176,6 +192,7 @@ public sealed class UpdateService
         UpdateAsset asset,
         string workDirectory,
         bool allowLocal,
+        string? token,
         IProgress<string>? progress,
         CancellationToken cancellationToken)
     {
@@ -185,6 +202,8 @@ public sealed class UpdateService
         var path = Path.Combine(workDirectory, Path.GetFileName(asset.Name));
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(DownloadTimeoutMinutes) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
+        if (token is not null)
+            client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         var finalUri = response.RequestMessage?.RequestUri ?? uri;
@@ -519,6 +538,19 @@ public sealed class UpdateService
         if (!root.TryGetProperty("published_at", out var element)) return null;
         var text = element.GetString();
         return DateTimeOffset.TryParse(text, out var value) ? value : null;
+    }
+
+    /// <summary>
+    /// Priorità: GITHUB_TOKEN (override temporaneo), poi il token salvato nelle impostazioni locali.
+    /// Non esistono valori predefiniti: senza token le release pubbliche funzionano comunque.
+    /// </summary>
+    private static string? ResolveToken(string? configured)
+    {
+        var environment = Environment.GetEnvironmentVariable("GITHUB_TOKEN")?.Trim();
+        if (!string.IsNullOrEmpty(environment)) return environment;
+
+        var local = configured?.Trim();
+        return string.IsNullOrEmpty(local) ? null : local;
     }
 
     private static (Uri Uri, bool AllowLocal) ResolveApiUri()

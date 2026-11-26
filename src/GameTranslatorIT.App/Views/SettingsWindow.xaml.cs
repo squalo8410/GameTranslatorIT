@@ -45,6 +45,7 @@ public partial class SettingsWindow : Window
         OcrLanguageCombo.ItemsSource = LanguageCatalog.BuildOcrOptions(ocrTags, EffectiveOcrTag(settings));
 
         DataContext = settings;
+        GitHubTokenBox.Password = settings.GitHubToken ?? string.Empty;
 
         OverlayPositionCombo.ItemsSource = Enum.GetValues<OverlayPosition>();
         OverlayFallbackCombo.ItemsSource = Enum.GetValues<OverlayFallback>();
@@ -209,6 +210,11 @@ public partial class SettingsWindow : Window
         }
     }
 
+    private void ShowGitHubToken_Changed(object sender, RoutedEventArgs e)
+    {
+        GitHubTokenBox.PasswordChar = ShowGitHubTokenCheck.IsChecked == true ? '\0' : '●';
+    }
+
     private void BrowseGlossary_Click(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFileDialog
@@ -280,6 +286,7 @@ public partial class SettingsWindow : Window
 
         _settings.TtsVoiceName = (TtsVoiceCombo.SelectedItem as SpeechVoice)?.Name;
         _settings.AudioInputDeviceId = (AudioInputCombo.SelectedItem as AudioInputDevice)?.Id;
+        _settings.GitHubToken = GitHubTokenBox.Password.Trim();
 
         var audioDevice = AudioOutputCombo.SelectedItem as AudioOutputDevice;
         _settings.AudioOutputDeviceId = audioDevice?.Id;

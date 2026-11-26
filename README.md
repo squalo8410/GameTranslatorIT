@@ -127,15 +127,15 @@ All'avvio (dopo 8 secondi) e a intervalli configurabili l'app chiama:
 GET https://api.github.com/repos/squalo8410/GameTranslatorIT/releases/latest
 ```
 
-- Per un **repository privato** imposta sul PC dell'utente la variabile `GITHUB_TOKEN` prima di avviare l'app:
+- Per un **repository privato** puoi inserire un token personale in **Impostazioni → AGGIORNAMENTI → Token GitHub** (salvato solo nel profilo Windows dell'utente, mai negli asset distribuiti). In alternativa imposta la variabile `GITHUB_TOKEN` prima di avviare l'app:
 
   ```powershell
   setx GITHUB_TOKEN "<TOKEN_PERSONALE_SOLO_LETTURA_CONTENTS>"
   ```
 
-  Il token deve avere accesso al repository e il permesso **Contents: read**. Non va mai scritto nel codice, nei file distribuiti o nel repository. Dopo `setx` chiudi e riapri l'app (e, se necessario, Explorer). Senza token l'app continua a tradurre: mostra solo un avviso nel log.
+  Il token deve avere accesso al repository e il permesso **Contents: read**. La variabile `GITHUB_TOKEN`, se presente, ha la priorità sul campo delle impostazioni. Non va mai scritto nel codice, nei file distribuiti o nel repository. Dopo `setx` chiudi e riapri l'app (e, se necessario, Explorer). Senza token l'app continua a tradurre: mostra solo un avviso nel log.
 
-- Vengono ignorate le release `draft` e `prerelease`; è richiesto un tag `vX.Y.Z`.
+- Vengono ignorate le release `draft` e `prerelease`; è richiesto un tag `vX.Y.Z`. Una bozza privata non viene scaricata automaticamente nemmeno con token: GitHub esclude le bozze da `/releases/latest`. Per l'aggiornamento autonomo serve una release **pubblicata**.
 - L'asset viene scelto in questo ordine: **installer EXE → ZIP portable → MSIX**.
 - Per ogni asset la release deve contenere il file `.sha256` corrispondente. L'app scarica in una cartella temporanea, verifica dimensione e SHA256, e **non avvia nulla se il checksum non torna**. Se è impostata `GITUPDATER_CERT_THUMBPRINT`, verifica anche la firma Authenticode dell'EXE.
 - Per l'EXE viene avviato l'installer con `/VERYSILENT /NORESTART /CLOSEAPPLICATIONS /DIR="<cartella corrente>"`: la cartella scelta dall'utente non cambia. Per lo ZIP la cartella viene sostituita con backup e rollback in caso di errore. Per l'MSIX viene usato `Add-AppxPackage -ForceUpdateFromAnyVersion` (serve pacchetto firmato ed elevazione).

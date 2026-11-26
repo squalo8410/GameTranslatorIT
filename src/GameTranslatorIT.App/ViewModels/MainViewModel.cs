@@ -1908,7 +1908,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             UpdateStatus = new ComponentStatus(ComponentState.Attivo, "Verifica in corso");
             UpdateStatusText = "Verifica aggiornamenti in corso…";
 
-            var result = await _updateService.CheckAsync().ConfigureAwait(false);
+            var result = await _updateService.CheckAsync(Settings.GitHubToken).ConfigureAwait(false);
             if (!result.Success)
             {
                 var message = result.ErrorMessage ?? "Errore sconosciuto durante la verifica.";
@@ -1916,7 +1916,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 UpdateStatusText = "Verifica aggiornamenti non riuscita";
                 AppendLog($"Controllo aggiornamenti non riuscito: {message}");
                 if (!silentErrors)
-                    AppendLog("L'app continua a funzionare normalmente. Controlla la connessione o la variabile GITHUB_TOKEN.");
+                    AppendLog("L'app continua a funzionare normalmente. Controlla la connessione o il token GitHub in Impostazioni > Aggiornamenti.");
                 return;
             }
 
@@ -1989,7 +1989,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             UpdateStatus = new ComponentStatus(ComponentState.Attivo, "Download aggiornamento");
             UpdateStatusText = "Download e verifica dell'aggiornamento…";
-            await _updateService.DownloadAndApplyAsync(info, reporting).ConfigureAwait(false);
+            await _updateService.DownloadAndApplyAsync(info, Settings.GitHubToken, reporting).ConfigureAwait(false);
 
             _settingsService.Save(Settings);
             AppendLog($"Aggiornamento {info.Version} scaricato e verificato. Riavvio in corso…");
