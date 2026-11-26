@@ -128,7 +128,7 @@ GET https://api.github.com/repos/squalo8410/GameTranslatorIT/releases/latest
 - Per un **repository privato** imposta sul PC dell'utente la variabile `GITHUB_TOKEN` prima di avviare l'app:
 
   ```powershell
-  setx GITHUB_TOKEN "ghp_IL_TUO_TOKEN_CON_SOLO_LETTURA_CONTENTS"
+  setx GITHUB_TOKEN "<TOKEN_PERSONALE_SOLO_LETTURA_CONTENTS>"
   ```
 
   Il token deve avere accesso al repository e il permesso **Contents: read**. Non va mai scritto nel codice, nei file distribuiti o nel repository. Dopo `setx` chiudi e riapri l'app (e, se necessario, Explorer). Senza token l'app continua a tradurre: mostra solo un avviso nel log.
