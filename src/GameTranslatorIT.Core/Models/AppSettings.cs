@@ -45,7 +45,14 @@ public sealed class AppSettings
 
     public CaptureMode CaptureMode { get; set; } = CaptureMode.FullScreen;
     public int SelectedMonitorIndex { get; set; }
+
+    /// <summary>Identificativi stabili della finestra di gioco. Il titolo resta solo come etichetta.</summary>
+    public long SelectedWindowHandle { get; set; }
+    public int SelectedWindowPid { get; set; }
     public string? SelectedWindowTitle { get; set; }
+
+    /// <summary>Rileva automaticamente la finestra in primo piano quando non c'è una scelta salvata.</summary>
+    public bool AutoDetectGameWindow { get; set; } = true;
 
     public int SubtitleFontSize { get; set; } = 28;
     public string TextColor { get; set; } = "#FFFFFFFF";
@@ -102,6 +109,15 @@ public sealed class AppSettings
 
     /// <summary>ID del dispositivo audio di uscita scelto (null = predefinito di Windows).</summary>
     public string? AudioOutputDeviceId { get; set; }
+
+    /// <summary>ID del dispositivo di ingresso (microfono) scelto, se presente.</summary>
+    public string? AudioInputDeviceId { get; set; }
+
+    /// <summary>Riproduzione della voce su tutte le uscite audio attive.</summary>
+    public bool PlayOnAllAudioDevices { get; set; }
+
+    /// <summary>Nome della voce Windows usata per la sintesi (null = prima voce italiana).</summary>
+    public string? TtsVoiceName { get; set; }
 
     /// <summary>Mostra solo le uscite audio attive nell'elenco, così la scelta è immediata.</summary>
     public bool ShowOnlyActiveAudioDevices { get; set; } = true;

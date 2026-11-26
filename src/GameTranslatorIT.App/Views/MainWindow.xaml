@@ -138,11 +138,15 @@
                                          IsChecked="{Binding Settings.CaptureMode, Converter={StaticResource EnumEqual}, ConverterParameter={x:Static models:CaptureMode.GameWindow}}" />
                             <TextBlock Text="Finestra del gioco da leggere" Style="{StaticResource Muted}" Margin="0,8,0,6" />
                             <ComboBox ItemsSource="{Binding Windows}" DisplayMemberPath="Title"
-                                      SelectedValuePath="Title" SelectedValue="{Binding Settings.SelectedWindowTitle}"
+                                      SelectedItem="{Binding SelectedGameWindow}"
                                       SelectionChanged="WindowSetting_Changed"
                                       ToolTip="Scegliendo una finestra si attiva automaticamente la cattura della finestra di gioco" />
+                            <CheckBox Content="Rileva automaticamente il gioco in primo piano"
+                                      IsChecked="{Binding AutoDetectGameWindow}" Margin="0,8,0,0" />
+                            <Button Content="Trova il gioco attivo" Command="{Binding DetectGameWindowCommand}"
+                                    HorizontalAlignment="Left" Margin="0,8,0,0" />
                             <Button Content="Aggiorna elenco finestre" Command="{Binding RefreshDevicesCommand}"
-                                    HorizontalAlignment="Left" Margin="0,10,0,0" />
+                                    HorizontalAlignment="Left" Margin="0,8,0,0" />
                         </StackPanel>
                     </Expander>
 
@@ -190,7 +194,7 @@
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
-                            <TextBlock Text="F1–F8: muto · Ctrl+F1–F8: seleziona · Ctrl+Shift+F1–F8: modalità"
+                            <TextBlock Text="F1–F12: muto · Ctrl+F1–F12: seleziona · Ctrl+Shift+F1–F12: modalità"
                                        Style="{StaticResource Muted}" Margin="0,8,0,0" />
                         </StackPanel>
                     </Expander>
@@ -208,6 +212,16 @@
                                     </Style>
                                 </ComboBox.ItemContainerStyle>
                             </ComboBox>
+                            <CheckBox Content="Riproduci la voce su tutte le uscite attive"
+                                      IsChecked="{Binding PlayOnAllAudioDevices}" Margin="0,6,0,0" />
+                            <TextBlock Text="Voce TTS" Style="{StaticResource Muted}" Margin="0,8,0,4" />
+                            <ComboBox ItemsSource="{Binding SpeechVoices}" DisplayMemberPath="DisplayName"
+                                      SelectedItem="{Binding SelectedTtsVoice}"
+                                      ToolTip="Tutte le voci installate in Windows" />
+                            <TextBlock Text="Microfono / ingresso audio" Style="{StaticResource Muted}" Margin="0,8,0,4" />
+                            <ComboBox ItemsSource="{Binding AudioInputDevices}" DisplayMemberPath="DisplayName"
+                                      SelectedItem="{Binding SelectedAudioInputDevice}"
+                                      ToolTip="Dispositivi di ingresso rilevati da Windows" />
                             <CheckBox Content="Mostra solo dispositivi attivi"
                                       IsChecked="{Binding Settings.ShowOnlyActiveAudioDevices}"
                                       Checked="ActiveAudioFilter_Changed" Unchecked="ActiveAudioFilter_Changed"

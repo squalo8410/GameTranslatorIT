@@ -12,31 +12,37 @@ public sealed record AudioEndpointInfo(string Id, string Name, int State);
 internal sealed class CoreAudioDeviceEnumerator
 {
     private const int EDataFlowRender = 0;
+    private const int EDataFlowCapture = 1;
     private const int AllStates = 0x0000000F;
 
     private static readonly Guid ClsMmDeviceEnumerator = new("BCDE0395-E52F-467C-8E3D-C4579291692E");
     private static readonly Guid PkeyDeviceFriendlyName = new("A45C254E-DF1C-4EFD-8020-67D146A850E0");
     private static readonly Guid PkeyDeviceInstanceId = new("78C34FC8-104A-4ACA-9EA4-524D52996E57");
 
-    public IReadOnlyList<AudioEndpointInfo> GetRenderEndpoints()
+    public IReadOnlyList<AudioEndpointInfo> GetRenderEndpoints() => GetEndpoints(EDataFlowRender, "uscita");
+
+    /// <summary>Tutti i microfoni/ingressi audio, inclusi quelli disattivati o non collegati.</summary>
+    public IReadOnlyList<AudioEndpointInfo> GetCaptureEndpoints() => GetEndpoints(EDataFlowCapture, "ingresso");
+
+    private IReadOnlyList<AudioEndpointInfo> GetEndpoints(int flow, string label)
     {
         var enumerator = CreateEnumerator();
         IMMDeviceCollection? collection = null;
         var result = new List<AudioEndpointInfo>();
         try
         {
-            Check(enumerator.EnumAudioEndpoints(EDataFlowRender, AllStates, out collection),
-                "enumerazione uscite audio");
+            Check(enumerator.EnumAudioEndpoints(flow, AllStates, out collection),
+                $"enumerazione dispositivi di {label}");
 
-            Check(collection.GetCount(out var count), "conteggio uscite audio");
+            Check(collection.GetCount(out var count), $"conteggio dispositivi di {label}");
             for (var i = 0; i < count; i++)
             {
                 IMMDevice? device = null;
                 try
                 {
-                    Check(collection.Item(i, out device), "lettura uscita audio");
-                    Check(device.GetId(out var id), "lettura ID uscita audio");
-                    Check(device.GetState(out var state), "lettura stato uscita audio");
+                    Check(collection.Item(i, out device), $"lettura dispositivo di {label}");
+                    Check(device.GetId(out var id), $"lettura ID dispositivo di {label}");
+                    Check(device.GetState(out var state), $"lettura stato dispositivo di {label}");
                     result.Add(new AudioEndpointInfo(id, GetFriendlyName(device), state));
                 }
                 finally
@@ -53,15 +59,20 @@ internal sealed class CoreAudioDeviceEnumerator
         }
     }
 
-    public string GetDefaultRenderEndpointId()
+    public string GetDefaultRenderEndpointId() => GetDefaultEndpointId(EDataFlowRender, "uscita");
+
+    /// <summary>Microfono predefinito di Windows.</summary>
+    public string GetDefaultCaptureEndpointId() => GetDefaultEndpointId(EDataFlowCapture, "ingresso");
+
+    private string GetDefaultEndpointId(int flow, string label)
     {
         var enumerator = CreateEnumerator();
         IMMDevice? device = null;
         try
         {
-            Check(enumerator.GetDefaultAudioEndpoint(EDataFlowRender, 0, out device),
-                "ricerca uscita predefinita");
-            Check(device.GetId(out var id), "lettura ID uscita predefinita");
+            Check(enumerator.GetDefaultAudioEndpoint(flow, 0, out device),
+                $"ricerca dispositivo di {label} predefinito");
+            Check(device.GetId(out var id), $"lettura ID {label} predefinito");
             return id;
         }
         finally

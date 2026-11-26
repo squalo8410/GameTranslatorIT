@@ -99,7 +99,7 @@
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
 
-                            <TextBlock Text="F1–F8: muto · Ctrl+F1–F8: seleziona · Ctrl+Shift+F1–F8: modalità · Ctrl+Alt+F1–F8: rimuovi"
+                            <TextBlock Text="F1–F12: muto · Ctrl+F1–F12: seleziona · Ctrl+Shift+F1–F12: modalità · Ctrl+Alt+F1–F12: rimuovi"
                                        Style="{StaticResource Muted}" Margin="0,8,0,8" />
                             <CheckBox Content="Mostra il pannello rapido all'avvio"
                                       IsChecked="{Binding Settings.QuickControlAlwaysVisible}"
@@ -153,6 +153,14 @@
                                       IsChecked="{Binding Settings.ShowOnlyActiveAudioDevices}"
                                       Checked="ActiveAudioFilter_Changed" Unchecked="ActiveAudioFilter_Changed"
                                       Margin="0,6,0,0" />
+                            <CheckBox Content="Riproduci la voce su tutte le uscite attive"
+                                      IsChecked="{Binding PlayOnAllAudioDevices}" Margin="0,6,0,0" />
+                            <TextBlock Text="Voce TTS" Style="{StaticResource Muted}" Margin="0,8,0,4" />
+                            <ComboBox ItemsSource="{Binding SpeechVoices}" DisplayMemberPath="DisplayName"
+                                      SelectedItem="{Binding SelectedTtsVoice}" />
+                            <TextBlock Text="Microfono / ingresso audio" Style="{StaticResource Muted}" Margin="0,8,0,4" />
+                            <ComboBox ItemsSource="{Binding AudioInputDevices}" DisplayMemberPath="DisplayName"
+                                      SelectedItem="{Binding SelectedAudioInputDevice}" Margin="0,0,0,8" />
                             <Button Content="Aggiorna dispositivi audio" Command="{Binding RefreshAudioDevicesCommand}"
                                     HorizontalAlignment="Left" Margin="0,8,0,4" />
                             <Button Content="Prova voce" Command="{Binding TestVoiceCommand}"
@@ -189,8 +197,12 @@
                                      SelectionChanged="CaptureSetting_Changed" Height="86" Margin="0,0,0,8" />
                             <TextBlock Text="Finestra di gioco" Style="{StaticResource Muted}" />
                             <ListBox ItemsSource="{Binding Windows}" DisplayMemberPath="Title"
-                                     SelectedValuePath="Title" SelectedValue="{Binding Settings.SelectedWindowTitle}"
+                                     SelectedItem="{Binding SelectedGameWindow}"
                                      SelectionChanged="CaptureSetting_Changed" Height="86" Margin="0,0,0,10" />
+                            <CheckBox Content="Rileva automaticamente il gioco in primo piano"
+                                      IsChecked="{Binding AutoDetectGameWindow}" Margin="0,0,0,6" />
+                            <Button Content="Trova il gioco attivo" Command="{Binding DetectGameWindowCommand}"
+                                    HorizontalAlignment="Left" Margin="0,0,0,10" />
 
                             <TextBlock Text="Intervallo di acquisizione (ms)" Style="{StaticResource Muted}" />
                             <TextBox Text="{Binding Settings.UpdateIntervalMs, UpdateSourceTrigger=LostFocus}"

@@ -230,17 +230,37 @@ public static class LanguageCatalog
         return Finalize(options, currentTag);
     }
 
+    /// <summary>
+    /// Tutte le 58 lingue del catalogo sono selezionabili come OCR: quelle senza
+    /// riconoscitore Windows installato sono contrassegnate, così l'utente può
+    /// sceglierle e installare il pacchetto lingua quando serve.
+    /// </summary>
     public static IReadOnlyList<LanguageOption> BuildOcrOptions(IReadOnlyList<string> ocrTags, string currentTag)
     {
-        var options = ocrTags
-            .Where(tag => !string.IsNullOrWhiteSpace(tag))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(tag => new LanguageOption(tag, DisplayNameForTag(tag), true))
-            .ToList();
+        var installed = new HashSet<string>(
+            ocrTags.Where(tag => !string.IsNullOrWhiteSpace(tag)), StringComparer.OrdinalIgnoreCase);
+
+        var options = new List<LanguageOption>();
+        foreach (var definition in Languages)
+        {
+            var ready = installed.Contains(definition.OcrTag);
+            options.Add(new LanguageOption(
+                definition.OcrTag,
+                ready
+                    ? $"{definition.ItalianName} ({definition.OcrTag})"
+                    : $"{definition.ItalianName} ({definition.OcrTag}) — OCR da installare",
+                ready));
+        }
+
+        foreach (var tag in installed)
+        {
+            if (Languages.Any(l => string.Equals(l.OcrTag, tag, StringComparison.OrdinalIgnoreCase))) continue;
+            options.Add(new LanguageOption(tag, DisplayNameForTag(tag), true));
+        }
 
         if (!string.IsNullOrWhiteSpace(currentTag) &&
             !options.Any(o => string.Equals(o.Code, currentTag, StringComparison.OrdinalIgnoreCase)))
-            options.Insert(0, new LanguageOption(currentTag, $"{currentTag} (da installare)", false));
+            options.Add(new LanguageOption(currentTag, $"{currentTag} (impostazione attuale — OCR da installare)", false));
 
         return options.OrderBy(o => o.DisplayName, StringComparer.CurrentCultureIgnoreCase).ToList();
     }

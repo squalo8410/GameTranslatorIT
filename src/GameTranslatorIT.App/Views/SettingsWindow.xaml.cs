@@ -50,8 +50,29 @@ public partial class SettingsWindow : Window
         OverlayFallbackCombo.ItemsSource = Enum.GetValues<OverlayFallback>();
         RegionCountCombo.ItemsSource = Enumerable.Range(1, 12).ToArray();
 
+        var voices = ItalianSpeechService.GetInstalledVoices();
+        TtsVoiceCombo.ItemsSource = voices;
+        TtsVoiceCombo.SelectedItem = voices.FirstOrDefault(v =>
+                                         string.Equals(v.Name, settings.TtsVoiceName, StringComparison.OrdinalIgnoreCase))
+                                     ?? voices.FirstOrDefault(v => v.Language.StartsWith("it", StringComparison.OrdinalIgnoreCase))
+                                     ?? voices.FirstOrDefault();
+
         _ = LoadLanguagesAsync(ocrTags);
         _ = LoadAudioDevicesAsync();
+        _ = LoadInputDevicesAsync();
+    }
+
+    private async Task LoadInputDevicesAsync()
+    {
+        var devices = await AudioInputDeviceService.GetDevicesAsync();
+        await Dispatcher.InvokeAsync(() =>
+        {
+            AudioInputCombo.ItemsSource = devices;
+            AudioInputCombo.SelectedItem = devices.FirstOrDefault(d =>
+                                               string.Equals(d.Id, _settings.AudioInputDeviceId, StringComparison.OrdinalIgnoreCase))
+                                           ?? devices.FirstOrDefault(d => d.IsDefault)
+                                           ?? devices.FirstOrDefault(d => d.IsActive);
+        });
     }
 
     private async Task LoadAudioDevicesAsync()
@@ -256,6 +277,9 @@ public partial class SettingsWindow : Window
         _settings.SystemVolume = Math.Clamp(_settings.SystemVolume, 0, 100);
         _settings.TranslationTimeoutMs = Math.Clamp(_settings.TranslationTimeoutMs, 500, 30000);
         _settings.UpdateCheckIntervalHours = Math.Clamp(_settings.UpdateCheckIntervalHours, 1, 168);
+
+        _settings.TtsVoiceName = (TtsVoiceCombo.SelectedItem as SpeechVoice)?.Name;
+        _settings.AudioInputDeviceId = (AudioInputCombo.SelectedItem as AudioInputDevice)?.Id;
 
         var audioDevice = AudioOutputCombo.SelectedItem as AudioOutputDevice;
         _settings.AudioOutputDeviceId = audioDevice?.Id;

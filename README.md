@@ -39,9 +39,11 @@ dotnet run --project src\GameTranslatorIT.App\GameTranslatorIT.App.csproj
 Eseguibile pubblicato: `dist\GameTranslatorIT\GameTranslatorIT.App.exe`.
 I pacchetti pronti per GitHub finiscono in `dist\Releases\v<versione>\`.
 
-Prima di avviare la traduzione, premere **Verifica traduzione locale**: se il servizio non è raggiungibile, avviare `AvviaLibreTranslate.cmd` dalla cartella `%LOCALAPPDATA%\GameTranslatorIT`.
+L'app avvia automaticamente il servizio di traduzione locale usando host e porta configurati in **Impostazioni → LINGUE E TRADUZIONE** (predefinito `http://127.0.0.1:5000`). Premere **Verifica traduzione locale** per controllarlo; se non è raggiungibile, la finestra principale mostra il motivo e ritenta l'avvio quando si cambia URL o porta.
 
-Dalla finestra principale, nel pannello **CONTROLLO**, si può alzare/abbassare il **volume della voce traduttrice**, scegliere il **dispositivo audio** su cui sentirla oppure spuntare **Riproduci su tutti i dispositivi audio** per inviare la stessa frase a tutti gli output disponibili. Le modifiche vengono salvate subito e si applicano dalla frase successiva; velocità e altre opzioni restano in **Impostazioni → VOCE**.
+Nel pannello **GIOCO** si può scegliere il monitor oppure la finestra reale del gioco, usare **Trova il gioco attivo** o lasciare attivato **Rileva automaticamente il gioco in primo piano**. La finestra viene identificata da handle e PID, non solo dal titolo: se il titolo cambia o due finestre hanno lo stesso nome, l'area di cattura resta corretta. Monitor e finestre vengono aggiornati automaticamente ogni pochi secondi.
+
+Dalla finestra principale, nel pannello **DISPOSITIVI IN USCITA**, si può scegliere l'uscita audio, la **voce TTS installata in Windows**, il **microfono/ingresso audio** rilevato dal sistema oppure spuntare **Riproduci la voce su tutte le uscite attive**. Nel pannello **CONTROLLO** si può regolare il volume. Le modifiche vengono salvate subito e si applicano dalla frase successiva; velocità e altre opzioni restano in **Impostazioni → VOCE**.
 
 ---
 
@@ -49,12 +51,12 @@ Dalla finestra principale, nel pannello **CONTROLLO**, si può alzare/abbassare 
 
 | Area | Implementazione reale |
 |---|---|
-| Acquisizione | GDI `BitBlt` + `GetDIBits` su monitor selezionato o regione finestra; hash FNV-1a dei pixel per rilevare le modifiche (solo le modifiche vanno a OCR). |
-| OCR | `Windows.Media.Ocr.OcrEngine` con ritaglio automatico della fascia sottotitoli (o area manuale 0–1), ingrandimento e contrasto regolabili. |
+| Acquisizione | GDI `BitBlt` + `GetDIBits` su monitor selezionato o finestra di gioco reale (handle + PID, DPI-aware); hash FNV-1a dei pixel per rilevare le modifiche (solo le modifiche vanno a OCR). Rilevamento automatico della finestra in primo piano. |
+| OCR | `Windows.Media.Ocr.OcrEngine` con ritaglio automatico della fascia sottotitoli (o area manuale 0–1), ingrandimento e contrasto regolabili. Tutte le 58 lingue sono selezionabili: se il pacchetto Windows manca, l'app usa un riconoscitore installato e avvisa, invece di bloccare la traduzione. |
 | Deduplica | Cache degli ultimi 200 testi normalizzati; nessuna ritraduzione di frasi già viste; coda "latest-wins" che scarta traduzioni obsolete. |
 | Traduzione | `CompositeTranslationProvider`: usa sempre `LibreTranslateProvider` locale (`POST /translate`, `q`/`source`/`target`) quando il modello esiste; solo per le 8 lingue senza modello e solo con consenso esplicito usa `OnlineTranslationProvider`. Glossario `chiave=valore` e contesto delle ultime 3 frasi. |
 | Overlay | Finestra layered WPF (`WS_EX_LAYERED`, `WS_EX_NOACTIVATE`, `WS_EX_TRANSPARENT`, `WM_NCHITTEST → HTTRANSPARENT`), sempre in primo piano, spostabile/ridimensionabile in modalità modifica, testo IT o EN+IT. |
-| Voce | `SpeechSynthesizer` con prima voce italiana installata; volume/velocità; uscita instradata tramite `AudioGraph` su un dispositivo scelto o, in parallelo, su tutti i dispositivi disponibili. La lettura non blocca la visualizzazione testuale. |
+| Voce e dispositivi | `SpeechSynthesizer` con qualunque voce Windows installata selezionabile (predefinita: prima italiana); volume/velocità; uscita instradata tramite `AudioGraph` su un dispositivo scelto o, in parallelo, su tutte le uscite attive. Microfoni/ingressi audio enumerati da Core Audio e WinRT. La lettura non blocca la visualizzazione testuale. |
 | Fallback schermo intero | Monitor secondario e/o lettura vocale forzata configurabili; avviso esplicito nell'UI. |
 | Impostazioni | Salvataggio JSON in `%APPDATA%\GameTranslatorIT\settings.json`; ogni controllo è collegato a un comportamento reale. |
 
@@ -220,7 +222,7 @@ Islandese, croato, serbo, macedone, tamil, telugu, gallese e latino **non hanno 
 
 ### Caratteri speciali e scrittura da destra a sinistra
 
-Le richieste usano UTF-8 (form-urlencoded o query codificata). L'overlay adotta un elenco di font con fallback (`Segoe UI, Microsoft YaHei, Arial Unicode MS, Tahoma, SimSun, Yu Gothic, Malgun Gothic, Noto Sans`) e imposta `FlowDirection=RightToLeft` quando il testo contiene caratteri arabi, ebraici, persiani o urdu: niente quadratini e ordine di lettura corretto.
+Le richieste usano UTF-8 (form-urlencoded o query codificata). L'overlay adotta un elenco di font con fallback (`Segoe UI, Microsoft YaHei, Arial Unicode MS, Tahoma, SimSun, Yu Gothic, Malgun Gothic, Noto Sans`) e imposta `FlowDirection=RightToLeft` sull'intero blocco del riquadro quando il testo contiene caratteri arabi, ebraici, persiani o urdu, mantenendo la direzione corretta anche per il testo originale: niente quadratini e ordine di lettura corretto.
 
 ### Verifiche eseguite prima della release
 

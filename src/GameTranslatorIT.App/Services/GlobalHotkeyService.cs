@@ -5,8 +5,8 @@ namespace GameTranslatorIT.App.Services;
 
 /// <summary>
 /// Tasti rapidi globali per i riquadri:
-/// F1–F8 muto, Ctrl+F1–F8 selezione, Ctrl+Shift+F1–F8 cambio modalità,
-/// Ctrl+Alt+F1–F8 rimozione selezione, Ctrl+Shift+P pannello rapido,
+/// F1–F12 muto, Ctrl+F1–F12 selezione, Ctrl+Shift+F1–F12 cambio modalità,
+/// Ctrl+Alt+F1–F12 rimozione selezione, Ctrl+Shift+P pannello rapido,
 /// Ctrl+Shift+D pannello di controllo completo.
 /// Usa una finestra nascosta dedicata: riceve WM_HOTKEY anche quando la finestra
 /// principale non è attiva e non dipende dall'hook della finestra WPF.
@@ -20,7 +20,7 @@ public sealed class GlobalHotkeyService : IDisposable
     private const int VkF1 = 0x70;
     private const int VkP = 0x50;
     private const int VkD = 0x44;
-    private const int MaxRegions = 8;
+    private const int MaxRegions = 12;
     private const int QuickControlId = 500;
     private const int ControlPanelId = 501;
     private static readonly IntPtr HwndMessage = new(-3);

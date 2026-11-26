@@ -38,7 +38,11 @@ public sealed class OverlayRegionEntry : INotifyPropertyChanged
         get => _original;
         set
         {
-            if (Set(ref _original, value)) OnPropertyChanged(nameof(OriginalFlow));
+            if (Set(ref _original, value))
+            {
+                OnPropertyChanged(nameof(OriginalFlow));
+                OnPropertyChanged(nameof(BlockFlow));
+            }
         }
     }
 
@@ -47,7 +51,11 @@ public sealed class OverlayRegionEntry : INotifyPropertyChanged
         get => _translated;
         set
         {
-            if (Set(ref _translated, value)) OnPropertyChanged(nameof(TextFlow));
+            if (Set(ref _translated, value))
+            {
+                OnPropertyChanged(nameof(TextFlow));
+                OnPropertyChanged(nameof(BlockFlow));
+            }
         }
     }
 
@@ -65,6 +73,12 @@ public sealed class OverlayRegionEntry : INotifyPropertyChanged
 
     /// <summary>Testo originale da destra a sinistra quando contiene caratteri RTL.</summary>
     public FlowDirection OriginalFlow => ContainsRtl(Original)
+        ? FlowDirection.RightToLeft
+        : FlowDirection.LeftToRight;
+
+    /// <summary>Direzione dell'intero blocco del riquadro nell'overlay.</summary>
+    public FlowDirection BlockFlow => TextFlow == FlowDirection.RightToLeft ||
+                                      OriginalFlow == FlowDirection.RightToLeft
         ? FlowDirection.RightToLeft
         : FlowDirection.LeftToRight;
 

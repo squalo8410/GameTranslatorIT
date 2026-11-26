@@ -36,6 +36,9 @@ public sealed class TranslationPipeline : IDisposable
     private Task? _loop;
     private GdiScreenCapture? _capture;
     private volatile WindowsOcrEngine? _ocr;
+    private IReadOnlyList<MonitorInfo> _monitors = Array.Empty<MonitorInfo>();
+    private IReadOnlyList<WindowInfo> _windows = Array.Empty<WindowInfo>();
+    private string _ocrTagUsed = string.Empty;
     private bool _disposed;
 
     public event EventHandler<SubtitleEventArgs>? SubtitleRecognized;
@@ -57,17 +60,20 @@ public sealed class TranslationPipeline : IDisposable
     {
         if (IsRunning) return;
 
-        var ocrTag = EffectiveOcrLanguage;
-        if (!WindowsOcrEngine.TryCreate(ocrTag, out var ocr) || ocr is null)
+        var requestedOcrTag = EffectiveOcrLanguage;
+        if (!TryCreateOcr(requestedOcrTag, out var ocr, out var usedOcrTag) || ocr is null)
         {
             OcrStatusChanged?.Invoke(this, new ComponentStatus(ComponentState.Errore,
-                $"Pacchetto lingua OCR '{ocrTag}' non installato"));
+                $"Nessun pacchetto OCR di Windows disponibile per '{requestedOcrTag}'"));
             ErrorOccurred?.Invoke(this,
-                $"OCR non disponibile per '{ocrTag}'. Installa il pacchetto lingua di Windows.");
+                $"OCR non disponibile per '{requestedOcrTag}'. Installa un pacchetto lingua di Windows.");
             return;
         }
+        _ocrTagUsed = usedOcrTag;
 
-        var area = ResolveArea(monitors, windows);
+        _monitors = monitors.ToArray();
+        _windows = windows.ToArray();
+        var area = ResolveArea();
         if (area.Width <= 0 || area.Height <= 0)
         {
             CaptureStatusChanged?.Invoke(this, new ComponentStatus(ComponentState.Errore, "Area di cattura non valida"));
@@ -84,11 +90,13 @@ public sealed class TranslationPipeline : IDisposable
         CaptureStatusChanged?.Invoke(this, new ComponentStatus(ComponentState.Attivo,
             $"Acquisizione reale attiva — {area.Width}x{area.Height}"));
         OcrStatusChanged?.Invoke(this, new ComponentStatus(ComponentState.Pronto,
-            $"Windows OCR — {ocrTag} (voce {ocr.LanguageTag})"));
+            string.Equals(usedOcrTag, requestedOcrTag, StringComparison.OrdinalIgnoreCase)
+                ? $"Windows OCR — {usedOcrTag} (voce {ocr.LanguageTag})"
+                : $"Windows OCR — {usedOcrTag} invece di {requestedOcrTag} (pacchetto non installato)"));
         TranslationStatusChanged?.Invoke(this, new ComponentStatus(ComponentState.Pronto,
             $"{_provider.DisplayName} — glossario: {_glossary.Count} voci"));
 
-        _loop = Task.Run(() => RunLoopAsync(area, _cts.Token));
+        _loop = Task.Run(() => RunLoopAsync(_cts!.Token));
     }
 
     public void Stop()
@@ -139,14 +147,15 @@ public sealed class TranslationPipeline : IDisposable
     {
         if (!IsRunning) return true;
 
-        var tag = EffectiveOcrLanguage;
-        if (!WindowsOcrEngine.TryCreate(tag, out var ocr) || ocr is null)
+        var requestedTag = EffectiveOcrLanguage;
+        if (!TryCreateOcr(requestedTag, out var ocr, out var usedTag) || ocr is null)
         {
             OcrStatusChanged?.Invoke(this, new ComponentStatus(ComponentState.Errore,
-                $"Pacchetto lingua OCR '{tag}' non installato"));
-            ErrorOccurred?.Invoke(this, $"OCR non disponibile per '{tag}'. Installa il pacchetto lingua di Windows.");
+                $"Nessun pacchetto OCR di Windows disponibile per '{requestedTag}'"));
+            ErrorOccurred?.Invoke(this, $"OCR non disponibile per '{requestedTag}'. Installa il pacchetto lingua di Windows.");
             return false;
         }
+        _ocrTagUsed = usedTag;
 
         _ocr = ocr;
         foreach (var state in _regionStates.Values)
@@ -160,20 +169,46 @@ public sealed class TranslationPipeline : IDisposable
         }
 
         OcrStatusChanged?.Invoke(this, new ComponentStatus(ComponentState.Pronto,
-            $"Windows OCR — {tag} (voce {ocr.LanguageTag}) — lingua cambiata senza riavvio"));
+            $"Windows OCR — {usedTag} (voce {ocr.LanguageTag}) — lingua cambiata senza riavvio"));
         return true;
     }
 
-    private ScreenRect ResolveArea(IReadOnlyList<MonitorInfo> monitors, IReadOnlyList<WindowInfo> windows)
+    /// <summary>Aggiorna monitor e finestre senza riavviare la cattura: la finestra del gioco può essere spostata o chiusa.</summary>
+    public void UpdateTargets(IReadOnlyList<MonitorInfo> monitors, IReadOnlyList<WindowInfo> windows)
     {
-        if (_settings.CaptureMode == CaptureMode.FullScreen && monitors.Count > 0)
-            return monitors[Math.Clamp(_settings.SelectedMonitorIndex, 0, monitors.Count - 1)].Bounds;
+        _monitors = monitors.ToArray();
+        _windows = windows.ToArray();
+    }
 
-        var window = windows.FirstOrDefault(w =>
-            string.Equals(w.Title, _settings.SelectedWindowTitle, StringComparison.OrdinalIgnoreCase));
-        if (window is not null) return window.Bounds;
+    /// <summary>Area di cattura ricalcolata a ogni frame dall'elenco aggiornato.</summary>
+    public ScreenRect ResolveArea() => GameWindowResolver.ResolveArea(
+        _settings.CaptureMode,
+        _settings.SelectedMonitorIndex,
+        _settings.SelectedWindowHandle,
+        _settings.SelectedWindowPid,
+        _settings.SelectedWindowTitle,
+        _monitors,
+        _windows);
 
-        return monitors.Count > 0 ? monitors[0].Bounds : default;
+    private static bool TryCreateOcr(string requestedTag, out WindowsOcrEngine? ocr, out string usedTag)
+    {
+        var candidates = new List<string> { requestedTag };
+        candidates.AddRange(LanguageCatalog.GetOcrLanguageTags());
+        candidates.AddRange(new[] { "en-US", "it-IT" });
+
+        foreach (var candidate in candidates.Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (WindowsOcrEngine.TryCreate(candidate, out var engine) && engine is not null)
+            {
+                ocr = engine;
+                usedTag = candidate;
+                return true;
+            }
+        }
+
+        ocr = null;
+        usedTag = requestedTag;
+        return false;
     }
 
     private IEnumerable<CaptureRegionConfig> ResolveActiveRegions()
@@ -226,12 +261,19 @@ public sealed class TranslationPipeline : IDisposable
         return state;
     }
 
-    private async Task RunLoopAsync(ScreenRect area, CancellationToken ct)
+    private async Task RunLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             try
             {
+                var area = ResolveArea();
+                if (area.Width <= 0 || area.Height <= 0)
+                {
+                    await Task.Delay(Math.Clamp(_settings.UpdateIntervalMs, 100, 2000), ct);
+                    continue;
+                }
+
                 var frame = _capture!.CaptureRegion(area);
 
                 foreach (var config in ResolveActiveRegions())

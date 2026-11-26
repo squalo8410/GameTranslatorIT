@@ -31,6 +31,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private DispatcherTimer? _languageRefreshTimer;
     private bool _languageRefreshRunning;
     private bool _autoStartAttempted;
+    private string? _lastProbeBaseUrl;
+    private string? _lastLanguageSignature;
     private bool _isRefreshingLanguageOptions;
     private bool _suppressCaptureModeAutoSwitch;
     private bool _isRunning;
@@ -39,6 +41,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private int _systemVolume;
     private AudioOutputDevice? _selectedAudioOutputDevice;
     private AudioOutputDevice? _chosenAudioOutputDevice;
+    private WindowInfo? _selectedGameWindow;
+    private bool _suppressGameWindowApply;
+    private IReadOnlyList<AudioInputDevice> _audioInputDevices = Array.Empty<AudioInputDevice>();
+    private Process? _translationProcess;
+    private DispatcherTimer? _deviceRefreshTimer;
     private bool _suppressAudioDeviceApply;
     private bool _suppressChosenApply;
     private readonly Dictionary<string, Queue<string>> _pendingSpeech = new(StringComparer.OrdinalIgnoreCase);
@@ -89,7 +96,101 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         private set => SetField(ref _targetLanguageOptions, value);
     }
     public ObservableCollection<AudioOutputDevice> AudioOutputDevices { get; } = new();
+    public ObservableCollection<AudioInputDevice> AudioInputDevices { get; } = new();
     public ObservableCollection<string> LogEntries { get; } = new();
+
+    /// <summary>Voci installate in Windows selezionabili per la sintesi.</summary>
+    public IReadOnlyList<SpeechVoice> SpeechVoices => ItalianSpeechService.GetInstalledVoices();
+
+    public SpeechVoice? SelectedTtsVoice
+    {
+        get => SpeechVoices.FirstOrDefault(v =>
+            string.Equals(v.Name, Settings.TtsVoiceName, StringComparison.OrdinalIgnoreCase));
+        set
+        {
+            if (string.Equals(Settings.TtsVoiceName, value?.Name, StringComparison.OrdinalIgnoreCase)) return;
+            Settings.TtsVoiceName = value?.Name;
+            _speech.SetVoice(Settings.TtsVoiceName);
+            _settingsService.Save(Settings);
+            OnPropertyChanged();
+            EvaluateVoiceStatus();
+            AppendLog($"Voce TTS selezionata: {value?.DisplayName ?? "predefinita"}.");
+        }
+    }
+
+    /// <summary>Riproduce la voce su tutte le uscite audio attive.</summary>
+    public bool PlayOnAllAudioDevices
+    {
+        get => Settings.PlayOnAllAudioDevices;
+        set
+        {
+            if (Settings.PlayOnAllAudioDevices == value) return;
+            Settings.PlayOnAllAudioDevices = value;
+            _speech.SetPlayOnAllDevices(value);
+            _settingsService.Save(Settings);
+            OnPropertyChanged();
+            AppendLog(value
+                ? "Voce riprodotta su tutte le uscite audio attive."
+                : "Voce riprodotta solo sull'uscita selezionata.");
+        }
+    }
+
+    /// <summary>Microfono selezionato, tra quelli realmente rilevati da Windows.</summary>
+    public AudioInputDevice? SelectedAudioInputDevice
+    {
+        get => _audioInputDevices.FirstOrDefault(d =>
+            string.Equals(d.Id, Settings.AudioInputDeviceId, StringComparison.OrdinalIgnoreCase));
+        set
+        {
+            if (string.Equals(Settings.AudioInputDeviceId, value?.Id, StringComparison.OrdinalIgnoreCase)) return;
+            Settings.AudioInputDeviceId = value?.Id;
+            _settingsService.Save(Settings);
+            OnPropertyChanged();
+            AppendLog($"Dispositivo di ingresso selezionato: {value?.DisplayName ?? "predefinito di Windows"}.");
+        }
+    }
+
+    /// <summary>Finestra di gioco selezionata in modo stabile (handle e PID).</summary>
+    public WindowInfo? SelectedGameWindow
+    {
+        get => _selectedGameWindow;
+        set
+        {
+            if (_suppressGameWindowApply || ReferenceEquals(_selectedGameWindow, value)) return;
+            _selectedGameWindow = value;
+            OnPropertyChanged();
+            if (value is null)
+            {
+                Settings.SelectedWindowHandle = 0;
+                Settings.SelectedWindowPid = 0;
+                Settings.SelectedWindowTitle = null;
+                _settingsService.Save(Settings);
+                return;
+            }
+
+            Settings.SelectedWindowHandle = value.Handle.ToInt64();
+            Settings.SelectedWindowPid = value.Pid;
+            Settings.SelectedWindowTitle = value.Title;
+            _settingsService.Save(Settings);
+            SelectGameWindow();
+            _pipeline?.UpdateTargets(Monitors.ToList(), Windows.ToList());
+            AppendLog($"Finestra di gioco: {value.Title} ({value.ProcessName}, PID {value.Pid}).");
+        }
+    }
+
+    /// <summary>Rileva automaticamente la finestra in primo piano come gioco.</summary>
+    public bool AutoDetectGameWindow
+    {
+        get => Settings.AutoDetectGameWindow;
+        set
+        {
+            if (Settings.AutoDetectGameWindow == value) return;
+            Settings.AutoDetectGameWindow = value;
+            OnPropertyChanged();
+            _settingsService.Save(Settings);
+            if (value) DetectGameWindow();
+        }
+    }
 
     /// <summary>Elenco mostrato, filtrato se l'utente vuole vedere solo le uscite attive.</summary>
     public IEnumerable<AudioOutputDevice> VisibleAudioOutputDevices => Settings.ShowOnlyActiveAudioDevices
@@ -154,6 +255,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public RelayCommand StartCommand { get; }
     public RelayCommand StopCommand { get; }
     public RelayCommand RefreshDevicesCommand { get; }
+    public RelayCommand DetectGameWindowCommand { get; }
     public RelayCommand RefreshLanguagesCommand { get; }
     public RelayCommand RefreshAudioDevicesCommand { get; }
     public RelayCommand OpenSettingsCommand { get; }
@@ -189,6 +291,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         StartCommand = new RelayCommand(_ => Start(), _ => !IsRunning);
         StopCommand = new RelayCommand(_ => Stop(), _ => IsRunning);
         RefreshDevicesCommand = new RelayCommand(_ => RefreshDevices());
+        DetectGameWindowCommand = new RelayCommand(_ => DetectGameWindow());
         RefreshLanguagesCommand = new RelayCommand(async _ => await RefreshLanguagesAsync());
         RefreshAudioDevicesCommand = new RelayCommand(async _ => await RefreshAudioDevicesAsync());
         OpenSettingsCommand = new RelayCommand(_ => OpenSettings());
@@ -210,6 +313,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         CheckForUpdatesCommand = new RelayCommand(async _ => await CheckForUpdatesAsync(true, false));
 
         RefreshDevices();
+        StartDeviceRefreshTimer();
         StartLanguageRefreshTimer();
         _ = LoadLanguageOptionsAsync();
 
@@ -235,6 +339,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
 
         _speech.Initialize();
+        if (!string.IsNullOrWhiteSpace(Settings.TtsVoiceName) && !_speech.SetVoice(Settings.TtsVoiceName))
+            AppendLog($"Voce TTS salvata '{Settings.TtsVoiceName}' non disponibile: uso quella predefinita.");
+        _speech.SetPlayOnAllDevices(Settings.PlayOnAllAudioDevices);
         EvaluateVoiceStatus();
         _ = RefreshAudioDevicesAsync();
 
@@ -498,6 +605,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         try
         {
             devices = await AudioOutputDeviceService.GetDevicesAsync();
+            _audioInputDevices = await AudioInputDeviceService.GetDevicesAsync();
         }
         catch (Exception ex)
         {
@@ -510,6 +618,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             AudioOutputDevices.Clear();
             foreach (var device in devices) AudioOutputDevices.Add(device);
             OnPropertyChanged(nameof(VisibleAudioOutputDevices));
+
+            AudioInputDevices.Clear();
+            foreach (var device in _audioInputDevices) AudioInputDevices.Add(device);
+            OnPropertyChanged(nameof(SelectedAudioInputDevice));
 
             var pendingName = Settings.PendingAudioDeviceName;
             var pendingDevice = string.IsNullOrWhiteSpace(pendingName)
@@ -525,17 +637,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             var saved = Settings.AudioOutputDeviceId;
             var savedDevice = saved is null ? null : devices.FirstOrDefault(d =>
                 string.Equals(d.Id, saved, StringComparison.OrdinalIgnoreCase));
-            // Preferenza: dispositivo appena collegato, poi quello salvato, poi le cuffie M8,
-            // poi qualunque uscita con nome "Cuffie", poi un'uscita reale non virtuale.
+            // Preferenza: dispositivo appena collegato, poi quello salvato, poi il
+            // predefinito di Windows. Nessuna preferenza hardcoded per prodotti specifici.
             var selected = pendingDevice
                            ?? (savedDevice is { IsActive: true } ? savedDevice : null)
-                           ?? devices.FirstOrDefault(d => d.IsActive &&
-                                   d.Name.Contains("M8", StringComparison.OrdinalIgnoreCase))
-                           ?? devices.FirstOrDefault(d => d.IsActive &&
-                                   d.Name.Contains("Cuffie", StringComparison.OrdinalIgnoreCase))
-                           ?? devices.FirstOrDefault(d => d.IsActive &&
-                                   !d.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
-                           ?? devices.FirstOrDefault(d => d.IsDefault)
+                           ?? devices.FirstOrDefault(d => d.IsDefault && d.IsActive)
                            ?? devices.FirstOrDefault(d => d.IsActive)
                            ?? devices.FirstOrDefault();
 
@@ -548,7 +654,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 SyncChosenDevice(selected);
             if (pendingDevice is not null)
                 AppendLog($"Dispositivo atteso '{pendingDevice.Name}' ora attivo: selezionato automaticamente.");
-            AppendLog($"Uscite audio rilevate: {devices.Count} ({devices.Count(d => d.IsActive)} attive).");
+            AppendLog($"Uscite audio rilevate: {devices.Count} ({devices.Count(d => d.IsActive)} attive), ingressi: {_audioInputDevices.Count}.");
         });
     }
 
@@ -664,6 +770,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
         var voiceUsable = device is { IsActive: true, Device: not null };
         var volumeUsable = device is null || device.VolumeAvailable;
+        _speech.SetPlayOnAllDevices(Settings.PlayOnAllAudioDevices);
         _speech.SetOutputDevice(voiceUsable ? device!.Device : null);
 
         try
@@ -693,27 +800,124 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         EvaluateVoiceStatus();
     }
 
+    private static readonly HashSet<string> SystemProcesses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "explorer", "powershell", "pwsh", "cmd", "WindowsTerminal", "conhost", "dwm",
+        "ApplicationFrameHost", "SystemSettings", "SearchHost", "StartMenuExperienceHost",
+        "GameTranslatorIT.App", "msedge", "chrome", "firefox", "Code", "OpenCode", "devenv"
+    };
+
     private void RefreshDevices()
     {
         // Ricaricare le collection può far scattare SelectionChanged: in quel caso
         // non deve cambiare la modalità di cattura scelta dall'utente.
         _suppressCaptureModeAutoSwitch = true;
+        _suppressGameWindowApply = true;
+        var handle = Settings.SelectedWindowHandle;
+        var pid = Settings.SelectedWindowPid;
+        var title = Settings.SelectedWindowTitle;
         try
         {
             Monitors.Clear();
             foreach (var monitor in Win32DisplayEnumerator.GetMonitors()) Monitors.Add(monitor);
             Windows.Clear();
-            foreach (var window in Win32DisplayEnumerator.GetWindows()) Windows.Add(window);
+            foreach (var window in Win32DisplayEnumerator.GetWindows(Environment.ProcessId)) Windows.Add(window);
 
             if (Settings.SelectedMonitorIndex >= Monitors.Count)
                 Settings.SelectedMonitorIndex = 0;
+
+            var stillThere = Windows.FirstOrDefault(w =>
+                (handle != 0 && w.Handle.ToInt64() == handle) ||
+                (pid > 0 && w.Pid == pid) ||
+                (!string.IsNullOrWhiteSpace(title) && string.Equals(w.Title, title, StringComparison.OrdinalIgnoreCase)));
+
+            _selectedGameWindow = stillThere;
+
+            if (stillThere is not null)
+            {
+                Settings.SelectedWindowHandle = stillThere.Handle.ToInt64();
+                Settings.SelectedWindowPid = stillThere.Pid;
+                Settings.SelectedWindowTitle = stillThere.Title;
+            }
+            else if (Settings.AutoDetectGameWindow && Settings.CaptureMode == CaptureMode.GameWindow)
+            {
+                DetectGameWindow(silent: true);
+            }
         }
         finally
         {
             _suppressCaptureModeAutoSwitch = false;
+            _suppressGameWindowApply = false;
+            OnPropertyChanged(nameof(SelectedGameWindow));
         }
 
-        AppendLog($"Dispositivi aggiornati: {Monitors.Count} monitor, {Windows.Count} finestre.");
+        _pipeline?.UpdateTargets(Monitors.ToList(), Windows.ToList());
+    }
+
+    /// <summary>Aggiorna periodicamente monitor, finestre e area di cattura senza fermare la pipeline.</summary>
+    private void StartDeviceRefreshTimer()
+    {
+        _deviceRefreshTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+        _deviceRefreshTimer.Tick -= DeviceRefreshTimer_Tick;
+        _deviceRefreshTimer.Tick += DeviceRefreshTimer_Tick;
+        if (!_deviceRefreshTimer.IsEnabled) _deviceRefreshTimer.Start();
+    }
+
+    private void DeviceRefreshTimer_Tick(object? sender, EventArgs e) => RefreshDevices();
+
+    /// <summary>
+    /// Trova il gioco: preferisce la finestra attiva, altrimenti la finestra
+    /// non di sistema più grande. Le finestre dell'app sono sempre escluse.
+    /// </summary>
+    public void DetectGameWindow(bool silent = false)
+    {
+        var foreground = Win32DisplayEnumerator.GetForegroundWindowInfo(Environment.ProcessId);
+        var foregroundIsGame = foreground is not null && !SystemProcesses.Contains(foreground.ProcessName);
+
+        // Il rilevamento automatico non deve rubare il fuoco a un'altra app:
+        // cambia bersaglio solo quando il gioco è davvero in primo piano.
+        if (silent && !foregroundIsGame) return;
+
+        var candidate = foregroundIsGame
+            ? foreground
+            : Windows
+                .Where(w => !SystemProcesses.Contains(w.ProcessName))
+                .OrderByDescending(w => (long)w.Bounds.Width * w.Bounds.Height)
+                .FirstOrDefault();
+
+        if (candidate is null)
+        {
+            if (!silent) AppendLog("Nessuna finestra di gioco rilevata: apri il gioco e riprova.");
+            return;
+        }
+
+        var handle = candidate.Handle.ToInt64();
+        if (Settings.SelectedWindowHandle == handle && Settings.CaptureMode == CaptureMode.GameWindow)
+        {
+            // Già selezionato: aggiorna solo le coordinate, senza riavviare la pipeline.
+            _pipeline?.UpdateTargets(Monitors.ToList(), Windows.ToList());
+            return;
+        }
+
+        if (!Windows.Any(w => w.Handle == candidate.Handle))
+        {
+            _suppressCaptureModeAutoSwitch = true;
+            Windows.Add(candidate);
+            _suppressCaptureModeAutoSwitch = false;
+        }
+
+        Settings.CaptureMode = CaptureMode.GameWindow;
+        var suppressed = _suppressGameWindowApply;
+        _suppressGameWindowApply = false;
+        SelectedGameWindow = candidate;
+        _suppressGameWindowApply = suppressed;
+        OnPropertyChanged(nameof(SelectedGameWindow));
+
+        _pipeline?.UpdateTargets(Monitors.ToList(), Windows.ToList());
+        if (IsRunning) SaveAndRestartIfRunning($"Gioco rilevato automaticamente: {candidate.Title}.");
+        else _settingsService.Save(Settings);
+        if (!silent)
+            AppendLog($"Gioco rilevato: {candidate.Title} ({candidate.ProcessName}, PID {candidate.Pid}).");
     }
 
 
@@ -790,6 +994,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             ? "http://127.0.0.1:5000"
             : Settings.LocalTranslateBaseUrl.TrimEnd('/');
 
+        // Un cambio di URL/porta deve poter ritentare l'avvio anche dopo un errore.
+        if (!string.Equals(_lastProbeBaseUrl, baseUrl, StringComparison.OrdinalIgnoreCase))
+        {
+            _lastProbeBaseUrl = baseUrl;
+            _autoStartAttempted = false;
+        }
+
+        var (host, port) = ParseLocalEndpoint(baseUrl);
         var probe = await LanguageCatalog.QueryAsync(baseUrl, 1500).ConfigureAwait(false);
         if (probe.TranslationServiceReachable)
         {
@@ -834,7 +1046,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 };
                 foreach (var argument in new[]
                          {
-                             portableLauncher, "--host", "127.0.0.1", "--port", "5000", "--disable-web-ui"
+                             portableLauncher, "--host", host, "--port", port.ToString(), "--disable-web-ui"
                          })
                 {
                     start.ArgumentList.Add(argument);
@@ -843,7 +1055,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             }
             else
             {
-                start = new ProcessStartInfo(exe, "--host 127.0.0.1 --port 5000 --disable-web-ui")
+                start = new ProcessStartInfo(exe, $"--host {host} --port {port} --disable-web-ui")
                 {
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -868,7 +1080,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 }
             }
 
-            var process = Process.Start(start);
+            _translationProcess = Process.Start(start);
+            var process = _translationProcess;
             AppendLog(process is null
                 ? "Avvio automatico del servizio di traduzione locale non riuscito."
                 : isPortable
@@ -893,6 +1106,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         return false;
     }
 
+    /// <summary>Host e porta configurati: il probe e l'avvio del servizio devono coincidere.</summary>
+    private static (string Host, int Port) ParseLocalEndpoint(string baseUrl)
+    {
+        if (Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
+            return (uri.Host, uri.Port > 0 ? uri.Port : 5000);
+        return ("127.0.0.1", 5000);
+    }
+
     private async Task LoadLanguageOptionsAsync()
     {
         if (_languageRefreshRunning || _disposed) return;
@@ -906,16 +1127,19 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             var available = await LanguageCatalog.QueryAsync(
                 Settings.LocalTranslateBaseUrl, Settings.TranslationTimeoutMs).ConfigureAwait(false);
 
+            var allowOnline = Settings.AllowOnlineFallbackForMissingLanguages;
+            var signature = $"{allowOnline}|{string.Join(',', ocrTags)}|{Settings.LocalTranslateBaseUrl}";
             var previous = _lastAvailableLanguages;
             var changed = previous is null
                 || previous.TranslationServiceReachable != available.TranslationServiceReachable
                 || !previous.SourceCodes.SetEquals(available.SourceCodes)
-                || !previous.TargetCodes.SetEquals(available.TargetCodes);
+                || !previous.TargetCodes.SetEquals(available.TargetCodes)
+                || !string.Equals(_lastLanguageSignature, signature, StringComparison.Ordinal);
 
             _lastAvailableLanguages = available;
-            (_provider as CompositeTranslationProvider)?.UpdateLocalTargets(available.TargetCodes);
+            _lastLanguageSignature = signature;
+            (_provider as CompositeTranslationProvider)?.UpdateLanguages(available.SourceCodes, available.TargetCodes);
 
-            var allowOnline = Settings.AllowOnlineFallbackForMissingLanguages;
             var currentSource = Settings.SourceLanguage;
             var currentTarget = Settings.TargetLanguage;
 
@@ -1478,19 +1702,14 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         AppendLog("Traduzione interrotta.");
     }
 
-    private ScreenRect ResolveArea()
-    {
-        if (Settings.CaptureMode == CaptureMode.FullScreen && Monitors.Count > 0)
-            return Monitors[Math.Clamp(Settings.SelectedMonitorIndex, 0, Monitors.Count - 1)].Bounds;
-
-        var window = Windows.FirstOrDefault(w =>
-            string.Equals(w.Title, Settings.SelectedWindowTitle, StringComparison.OrdinalIgnoreCase));
-        if (window is not null) return window.Bounds;
-
-        // La finestra salvata può non esistere più: usa il monitor principale
-        // invece di bloccare selezione e pipeline.
-        return Monitors.Count > 0 ? Monitors[0].Bounds : default;
-    }
+    private ScreenRect ResolveArea() => GameWindowResolver.ResolveArea(
+        Settings.CaptureMode,
+        Settings.SelectedMonitorIndex,
+        Settings.SelectedWindowHandle,
+        Settings.SelectedWindowPid,
+        Settings.SelectedWindowTitle,
+        Monitors,
+        Windows);
 
     private (ScreenRect Area, bool ShowOverlay, bool ForceVoice) ResolveOverlayFallback(ScreenRect sourceArea)
     {
@@ -1616,6 +1835,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         Settings.EnsureCaptureRegions();
         _settingsService.Save(Settings);
         _overlay.ApplySettings();
+        if (!_speech.SetVoice(Settings.TtsVoiceName))
+            AppendLog("Voce TTS richiesta non disponibile: uso quella predefinita.");
+        _speech.SetPlayOnAllDevices(Settings.PlayOnAllAudioDevices);
+        ApplyAudioOutputDevice(SelectedAudioOutputDevice);
+        _ = RefreshAudioDevicesAsync();
         EvaluateVoiceStatus();
         OnPropertyChanged(string.Empty);
         OnPropertyChanged(nameof(RegionCount));
@@ -1642,7 +1866,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             new OnlineTranslationProvider(Math.Max(8000, timeout)),
             () => Settings.AllowOnlineFallbackForMissingLanguages);
         if (_lastAvailableLanguages is not null)
-            provider.UpdateLocalTargets(_lastAvailableLanguages.TargetCodes);
+            provider.UpdateLanguages(_lastAvailableLanguages.SourceCodes, _lastAvailableLanguages.TargetCodes);
         return provider;
     }
 
@@ -1830,6 +2054,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _pendingDeviceTimer = null;
         _languageRefreshTimer?.Stop();
         _languageRefreshTimer = null;
+        _deviceRefreshTimer?.Stop();
+        _deviceRefreshTimer = null;
         _updateTimer?.Dispose();
         _updateTimer = null;
         _updateWindow?.Close();

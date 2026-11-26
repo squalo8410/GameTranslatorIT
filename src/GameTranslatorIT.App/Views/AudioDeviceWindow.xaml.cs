@@ -63,13 +63,7 @@ public sealed partial class AudioDeviceWindow : Window
 
     private void Reset_Click(object sender, RoutedEventArgs e)
     {
-        var recommended = _viewModel.AudioOutputDevices.FirstOrDefault(d => d.IsActive &&
-                              d.Name.Contains("M8", StringComparison.OrdinalIgnoreCase))
-                          ?? _viewModel.AudioOutputDevices.FirstOrDefault(d => d.IsActive && d.IsDefault)
-                          ?? _viewModel.AudioOutputDevices.FirstOrDefault(d => d.IsActive &&
-                                 d.Name.Contains("Cuffie", StringComparison.OrdinalIgnoreCase))
-                          ?? _viewModel.AudioOutputDevices.FirstOrDefault(d => d.IsActive &&
-                                 !d.Name.Contains("Virtual", StringComparison.OrdinalIgnoreCase))
+        var recommended = _viewModel.AudioOutputDevices.FirstOrDefault(d => d.IsActive && d.IsDefault)
                           ?? _viewModel.AudioOutputDevices.FirstOrDefault(d => d.IsActive);
 
         if (recommended is null)

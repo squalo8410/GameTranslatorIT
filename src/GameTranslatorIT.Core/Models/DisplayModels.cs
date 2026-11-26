@@ -27,6 +27,10 @@ public sealed class WindowInfo
     public required IntPtr Handle { get; init; }
     public required string Title { get; init; }
     public required string ProcessName { get; init; }
+
+    /// <summary>PID del processo: identifica la finestra anche con titoli duplicati o cambianti.</summary>
+    public required int Pid { get; init; }
+
     public required ScreenRect Bounds { get; init; }
     public bool IsVisible { get; init; }
 
