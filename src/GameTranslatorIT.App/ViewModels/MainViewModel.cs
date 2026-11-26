@@ -761,7 +761,10 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _autoStartAttempted = true;
 
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var exe = Path.Combine(localAppData, "GameTranslatorIT", "LibreTranslate", "Scripts", "libretranslate.exe");
+        var portableExe = Path.Combine(AppContext.BaseDirectory, "Runtime", "LibreTranslate", "Scripts", "libretranslate.exe");
+        var installedExe = Path.Combine(localAppData, "GameTranslatorIT", "LibreTranslate", "Scripts", "libretranslate.exe");
+        var isPortable = File.Exists(portableExe);
+        var exe = isPortable ? portableExe : installedExe;
         if (!File.Exists(exe)) return false;
 
         try
@@ -773,10 +776,29 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 WorkingDirectory = Path.GetDirectoryName(exe) ?? localAppData
             };
             start.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
+
+            // Nelle edizioni portable i modelli viaggiano insieme all'app:
+            // Argos Translate li legge da ARGOS_PACKAGES_DIR invece che dal profilo.
+            // Se la portable è stata scaricata senza archivi modello, lasciamo il
+            // comportamento storico (modelli installati nel profilo utente).
+            if (isPortable)
+            {
+                var portableModels = Path.Combine(AppContext.BaseDirectory, "Models", "argos-translate", "packages");
+                var hasPortableModels = Directory.Exists(portableModels) &&
+                    Directory.GetDirectories(portableModels).Length > 0;
+                if (hasPortableModels)
+                {
+                    start.EnvironmentVariables["ARGOS_PACKAGES_DIR"] = portableModels;
+                    AppendLog($"Modelli portable attivi: {portableModels}");
+                }
+            }
+
             var process = Process.Start(start);
             AppendLog(process is null
                 ? "Avvio automatico del servizio di traduzione locale non riuscito."
-                : "Servizio di traduzione locale avviato automaticamente in background.");
+                : isPortable
+                    ? "Servizio locale portable avviato automaticamente in background."
+                    : "Servizio di traduzione locale avviato automaticamente in background.");
         }
         catch (Exception ex)
         {
@@ -802,6 +824,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _languageRefreshRunning = true;
         try
         {
+            await PortableModelInstaller.EnsureReadyAsync(AppendLog).ConfigureAwait(false);
             await EnsureLocalTranslationServiceAsync().ConfigureAwait(false);
 
             var ocrTags = LanguageCatalog.GetOcrLanguageTags();

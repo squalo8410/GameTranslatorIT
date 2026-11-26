@@ -99,11 +99,14 @@ jobs:
           PFX_PASSWORD: ${{ secrets.MSIX_PFX_PASSWORD }}
           MSIX_SKIP: ${{ steps.msix.outputs.skip }}
         run: |
+          # I modelli (~10 GB) superano il limite GitHub di 2 GB: gli asset
+          # GameTranslatorIT-Models*.zip e le portable con modelli vengono caricati
+          # separatamente dalla build locale. La CI pubblica EXE, portable standard e MSIX.
           if ($env:MSIX_SKIP -eq 'false') {
-            .\BuildRelease.ps1 -Version $env:VERSION -PfxPath $env:PFX_PATH -PfxPassword $env:PFX_PASSWORD
+            .\BuildRelease.ps1 -Version $env:VERSION -SkipModelAssets -PfxPath $env:PFX_PATH -PfxPassword $env:PFX_PASSWORD
           }
           else {
-            .\BuildRelease.ps1 -Version $env:VERSION -SkipMsix
+            .\BuildRelease.ps1 -Version $env:VERSION -SkipModelAssets -SkipMsix
           }
 
       - name: Pubblica la release GitHub

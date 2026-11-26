@@ -2,7 +2,7 @@
 
 Software desktop Windows che rileva i sottotitoli dei videogiochi in 58 lingue, li traduce in qualsiasi altra lingua supportata in tempo reale e mostra il risultato in un overlay trasparente sopra il gioco.
 
-**Stato:** FASE 1–10 completate. EXE classico, MSIX firmato, copia portable, aggiornamenti automatici via GitHub Releases e supporto completo alle lingue richieste (versione 1.0.6).
+**Stato:** FASE 1–10 completate. EXE classico, MSIX firmato, copia portable (anche con tutti i 100 modelli inclusi), aggiornamenti automatici via GitHub Releases e supporto completo alle lingue richieste (versione 1.0.7).
 
 ---
 
@@ -11,7 +11,7 @@ Software desktop Windows che rileva i sottotitoli dei videogiochi in 58 lingue, 
 - Windows 10 versione 19041 o successiva / Windows 11 (x64).
 - Pacchetto lingua OCR `en-US` installato (Impostazioni → Lingue → Aggiungi una lingua).
 - Almeno una voce TTS italiana installata per la lettura vocale.
-- Per la traduzione locale: Python 3.10+ (lo script `installer\LibreTranslate\SetupLibreTranslate.ps1` crea l'ambiente virtuale e installa LibreTranslate/Argos). Serve Internet **solo la prima volta** per scaricare tutti i 100 modelli disponibili (50 lingue): i modelli non sono inclusi nell'EXE.
+- Per la traduzione locale: Python 3.10+ (lo script `installer\LibreTranslate\SetupLibreTranslate.ps1` crea l'ambiente virtuale e installa LibreTranslate/Argos). Nell'EXE classico serve Internet **solo la prima volta** per scaricare i 100 modelli disponibili (50 lingue). Le edizioni portable `Completo` e `Essenziali` includono già runtime e modelli; la portable standard può ricomporre i modelli dagli archivi `GameTranslatorIT-Models` della release.
 - Per leggere sottotitoli in una lingua diversa da inglese/italiano serve il corrispondente pacchetto OCR di Windows (Impostazioni → Lingue → Aggiungi una lingua). Il pulsante **Installa altre lingue OCR di Windows…** apre direttamente quella pagina.
 
 ---
@@ -78,7 +78,7 @@ Tutti gli output sono in `dist\installer\`.
 
 ### EXE classico — scegli tu la cartella
 
-`GameTranslatorIT-Setup-1.0.6.exe` (circa 55 MB), interfaccia solo in italiano.
+`GameTranslatorIT-Setup-1.0.7.exe` (circa 55 MB), interfaccia solo in italiano.
 Durante l'installazione compare la pagina **Cartella di destinazione**: puoi scegliere qualsiasi cartella. Il predefinito è `%LOCALAPPDATA%\Programs\GameTranslatorIT`, scrivibile senza diritti di amministratore.
 Al termine puoi installare il motore di traduzione locale e avviare l'app.
 
@@ -105,7 +105,9 @@ dotnet restore installer\MSIX\MsixTools.csproj
 
 ### Copia portable — scegli tu la cartella
 
-`GameTranslatorIT-Portable-1.0.6.zip` contiene la cartella `GameTranslatorIT` con dentro `GameTranslatorIT.App.exe` e `Avvia GameTranslator IT.cmd`: estrai lo ZIP dove vuoi e avvia dal launcher. Nessuna installazione, nessun registro modificato.
+- `GameTranslatorIT-Portable-1.0.7.zip`: cartella `GameTranslatorIT` con app, runtime LibreTranslate e launcher. Nessuna installazione, nessun registro modificato. Se accanto alla cartella estrai anche gli archivi `GameTranslatorIT-Models-1.0.7.part*.zip`, l'app li verifica (SHA256) e li estrae automaticamente in `Models\argos-translate\packages` al primo avvio; altrimenti usa i modelli installati nel profilo utente.
+- `GameTranslatorIT-Portable-Essenziali-1.0.7.zip`: stessa portable con già incluse le coppie italiano, spagnolo, francese, portoghese e cinese ↔ inglese (funziona subito offline).
+- `GameTranslatorIT-Portable-Completo-1.0.7.zip`: portable con **tutti i 100 modelli** (~10 GB). Viene generata solo in locale e non è pubblicata su GitHub perché supera il limite di 2 GB per asset.
 
 `installer\Portable\CopiaPortable.cmd` fa la stessa cosa con una finestra di selezione cartella.
 
@@ -149,11 +151,12 @@ git commit -m "Release 1.0.1"
 git tag v1.0.1
 git push origin main --tags
 
-# Oppure, senza workflow: crea tutti gli asset e i checksum in dist\Releases\v1.0.1
-.\BuildRelease.ps1 -Version 1.0.1
+# Build locale completa: scrive su G:\GameTranslatorIT-Releases e mette la portable completa in Downloads
+.\BuildRelease.ps1 -Version 1.0.7 -ReleaseOutputPath 'G:\GameTranslatorIT-Releases' `
+    -FullPortableOutputPath "$env:USERPROFILE\Downloads" -PfxPath '...' -PfxPassword '...'
 ```
 
-Il workflow `.github/workflows/release.yml` pubblica la release quando viene pushato un tag `v*`. Pubblica EXE, ZIP, MSIX (se disponibile) e tutti i `.sha256` con la `GITHUB_TOKEN` integrata di Actions.
+Il workflow `.github/workflows/release.yml` pubblica la release quando viene pushato un tag `v*`. Pubblica EXE, portable standard, MSIX (se disponibile) e i relativi `.sha256` con la `GITHUB_TOKEN` integrata di Actions. I modelli da 10 GB non vengono costruiti in CI (`-SkipModelAssets`): dopo il workflow carica dalla build locale, con `gh release upload <tag> ... --clobber`, la portable standard aggiornata (contiene il manifest), `GameTranslatorIT-Portable-Essenziali-*`, `GameTranslatorIT-Models-*.part*.zip` e tutti i loro `.sha256`.
 
 Per includere l'MSIX firmato configura due secret del repository:
 
@@ -203,7 +206,7 @@ Sono selezionabili **58 lingue**: le 55 richieste più azero, esperanto e kirghi
 
 `albanese, arabo, azero, basco, bengalese, bulgaro, catalano, cinese semplificato, cinese tradizionale, ceco, danese, olandese, esperanto, estone, finlandese, francese, galiziano, tedesco, greco, ebraico, hindi, ungherese, indonesiano, irlandese, inglese, italiano, giapponese, coreano, kirghiso, lettone, lituano, malese, norvegese, persiano, polacco, portoghese, portoghese brasiliano, rumeno, russo, slovacco, sloveno, spagnolo, swahili, svedese, filippino, thai, turco, ucraino, urdu, vietnamita`.
 
-I 100 modelli Argos vengono scaricati automaticamente da `SetupLibreTranslate.ps1` al primo avvio e salvati in `%LOCALAPPDATA%\GameTranslatorIT\LibreTranslate`: **non sono inclusi nell'EXE**, che resta leggero.
+I 100 modelli Argos vengono scaricati automaticamente da `SetupLibreTranslate.ps1` al primo avvio dell'EXE classico e salvati in `%LOCALAPPDATA%\GameTranslatorIT\LibreTranslate` (tramite `%USERPROFILE%\.local\share\argos-translate\packages`): l'EXE resta leggero. Nelle portable i modelli sono invece inclusi (Completo/Essenziali) oppure ricomposti dagli archivi della release; l'app avvia LibreTranslate con `ARGOS_PACKAGES_DIR` puntato alla cartella `Models` della portable. I 100 modelli occupano circa 9,8 GB, per questo su GitHub vengono pubblicati come più archivi separati.
 
 ### Fallback online esplicito (8 lingue)
 

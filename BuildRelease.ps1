@@ -1,8 +1,14 @@
 param(
     [string]$Version = '',
     [switch]$SkipMsix,
+    [switch]$SkipFullPortable,
+    [switch]$SkipModelAssets,
     [string]$PfxPath = '',
-    [string]$PfxPassword = ''
+    [string]$PfxPassword = '',
+    [string]$RuntimeLibreTranslatePath = '',
+    [string]$ModelsSourcePath = '',
+    [string]$FullPortableOutputPath = '',
+    [string]$ReleaseOutputPath = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -21,8 +27,92 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 
 $distDir = Join-Path $root 'dist\installer'
 $publishDir = Join-Path $root 'dist\GameTranslatorIT'
-$releaseDir = Join-Path $root "dist\Releases\v$Version"
+if ([string]::IsNullOrWhiteSpace($ReleaseOutputPath)) {
+    $releaseDir = Join-Path $root "dist\Releases\v$Version"
+}
+else {
+    $releaseDir = Join-Path $ReleaseOutputPath "v$Version"
+}
 New-Item -ItemType Directory -Force -Path $distDir, $releaseDir | Out-Null
+
+function Find-7Zip {
+    $candidates = @(
+        'C:\Program Files\7-Zip\7z.exe',
+        'C:\Program Files (x86)\7-Zip\7z.exe'
+    )
+    $fromPath = Get-Command 7z.exe -ErrorAction SilentlyContinue
+    if ($fromPath) { $candidates += $fromPath.Source }
+    return ($candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1)
+}
+
+$sevenZip = Find-7Zip
+
+function New-ZipFromPaths {
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Paths,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+    if (Test-Path -LiteralPath $Destination) { Remove-Item -LiteralPath $Destination -Force }
+    if ($sevenZip) {
+        & $sevenZip a -tzip -mx=1 -y $Destination @Paths | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Creazione archivio non riuscita: $Destination" }
+    }
+    else {
+        Compress-Archive -Path $Paths -DestinationPath $Destination -CompressionLevel Fastest -Force
+    }
+}
+
+function Get-PairCode {
+    param([Parameter(Mandatory = $true)][string]$Name)
+    $match = [regex]::Match(
+        $Name,
+        '(?:translate-)?(?:en_([a-z-]+)|([a-z-]+)_en)(?:-\d.*)?$',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $match.Success) { return '' }
+    if ($match.Groups[1].Success) { return $match.Groups[1].Value.ToLowerInvariant() }
+    return $match.Groups[2].Value.ToLowerInvariant()
+}
+
+function New-PortableStage {
+    param(
+        [Parameter(Mandatory = $true)][string]$StagePath,
+        [Parameter(Mandatory = $true)][string]$RuntimeSource,
+        [string]$ManifestSource = '',
+        [string[]]$IncludePackages = @()
+    )
+    if (Test-Path -LiteralPath $StagePath) { Remove-Item -LiteralPath $StagePath -Recurse -Force }
+    $app = Join-Path $StagePath 'GameTranslatorIT'
+    New-Item -ItemType Directory -Force -Path $app | Out-Null
+
+    Get-ChildItem -LiteralPath $publishDir -Force |
+        Where-Object { $_.Name -notin @('AppxManifest.xml', 'images') } |
+        Copy-Item -Destination $app -Recurse -Force
+
+    $launcher = Join-Path $app 'Avvia GameTranslator IT.cmd'
+    $launcherText = @"
+@echo off
+cd /d "%~dp0"
+start "" "%~dp0GameTranslatorIT.App.exe"
+"@
+    Set-Content -LiteralPath $launcher -Value $launcherText -Encoding ASCII
+
+    Copy-Item -LiteralPath $RuntimeSource -Destination (Join-Path $app 'Runtime\LibreTranslate') -Recurse -Force
+
+    if (-not [string]::IsNullOrWhiteSpace($ManifestSource)) {
+        $modelsMeta = Join-Path $app 'Models'
+        New-Item -ItemType Directory -Force -Path $modelsMeta | Out-Null
+        Copy-Item -LiteralPath $ManifestSource -Destination (Join-Path $modelsMeta 'models-manifest.json') -Force
+    }
+
+    if ($IncludePackages.Count -gt 0) {
+        $targetPackages = Join-Path $app 'Models\argos-translate\packages'
+        New-Item -ItemType Directory -Force -Path $targetPackages | Out-Null
+        foreach ($packagePath in $IncludePackages) {
+            Copy-Item -LiteralPath $packagePath -Destination $targetPackages -Recurse -Force
+        }
+    }
+    return $app
+}
 
 Write-Host "=== Pubblicazione $Version ==="
 # I file generati dal passaggio MSIX non devono finire nell'installer EXE.
@@ -65,34 +155,146 @@ if (-not $SkipMsix) {
         -Destination (Join-Path $releaseDir "GameTranslatorIT-$Version.msix") -Force
 }
 
-Write-Host "=== Portable ZIP ==="
-$portableStage = Join-Path $releaseDir 'portable-stage'
-if (Test-Path -LiteralPath $portableStage) { Remove-Item -LiteralPath $portableStage -Recurse -Force }
-$portableApp = Join-Path $portableStage 'GameTranslatorIT'
-New-Item -ItemType Directory -Force -Path $portableApp | Out-Null
-Get-ChildItem -LiteralPath $publishDir -Force |
-    Where-Object { $_.Name -notin @('AppxManifest.xml', 'images') } |
-    Copy-Item -Destination $portableApp -Recurse -Force
+Write-Host "=== Runtime LibreTranslate per le portable ==="
+$runtimeSource = $RuntimeLibreTranslatePath
+if ([string]::IsNullOrWhiteSpace($runtimeSource)) {
+    $installedRuntime = Join-Path $env:LOCALAPPDATA 'GameTranslatorIT\LibreTranslate'
+    if (Test-Path -LiteralPath (Join-Path $installedRuntime 'Scripts\libretranslate.exe')) {
+        $runtimeSource = $installedRuntime
+    }
+}
+if ([string]::IsNullOrWhiteSpace($runtimeSource) -or
+    -not (Test-Path -LiteralPath (Join-Path $runtimeSource 'Scripts\libretranslate.exe'))) {
+    $runtimeSource = Join-Path $root 'dist\runtime\LibreTranslate'
+    & (Join-Path $root 'installer\LibreTranslate\BuildRuntime.ps1') -OutputDir $runtimeSource
+    if ($LASTEXITCODE -ne 0) { throw "Preparazione runtime LibreTranslate non riuscita." }
+}
+Write-Host "Runtime: $runtimeSource"
 
-$launcher = Join-Path $portableApp 'Avvia GameTranslator IT.cmd'
-$launcherText = @"
-@echo off
-cd /d "%~dp0"
-start "" "%~dp0GameTranslatorIT.App.exe"
-"@
-Set-Content -LiteralPath $launcher -Value $launcherText -Encoding ASCII
+$manifestPath = ''
+$partFiles = @()
+$essentialZip = $null
+$fullZip = $null
+$essentialStage = $null
 
+if ($SkipModelAssets) {
+    Write-Host 'Modelli non preparati in questa build (-SkipModelAssets): verranno caricati separatamente.'
+}
+else {
+    Write-Host "=== Modelli Argos ==="
+    $modelsSource = $ModelsSourcePath
+    if ([string]::IsNullOrWhiteSpace($modelsSource)) {
+        $defaultModels = Join-Path $env:USERPROFILE '.local\share\argos-translate\packages'
+        if (Test-Path -LiteralPath $defaultModels) { $modelsSource = $defaultModels }
+    }
+    if ([string]::IsNullOrWhiteSpace($modelsSource) -or -not (Test-Path -LiteralPath $modelsSource)) {
+        throw 'Cartella modelli Argos non trovata. Specifica -ModelsSourcePath.'
+    }
+    $modelDirs = @(Get-ChildItem -LiteralPath $modelsSource -Directory | Sort-Object Name)
+    if ($modelDirs.Count -eq 0) { throw "Nessun modello Argos trovato in $modelsSource" }
+    Write-Host "Modelli disponibili: $($modelDirs.Count)"
+
+    Write-Host "=== Archivi modello per GitHub (max 1,6 GB ciascuno) ==="
+    $partLimit = 1600MB
+    $partRecords = @()
+    $index = 0
+    while ($index -lt $modelDirs.Count) {
+        $currentPaths = @()
+        $currentNames = @()
+        $currentBytes = 0
+        while ($index -lt $modelDirs.Count) {
+            $dir = $modelDirs[$index]
+            $bytes = (Get-ChildItem -LiteralPath $dir.FullName -Recurse -File |
+                Measure-Object -Property Length -Sum).Sum
+            if ($currentPaths.Count -gt 0 -and ($currentBytes + $bytes) -gt $partLimit) { break }
+            $currentPaths += $dir.FullName
+            $currentNames += $dir.Name
+            $currentBytes += $bytes
+            $index++
+        }
+        $partNumber = $partFiles.Count + 1
+        $partName = 'GameTranslatorIT-Models-{0}.part{1:00}.zip' -f $Version, $partNumber
+        $partPath = Join-Path $releaseDir $partName
+        Write-Host ("{0}: {1} pacchetti, {2:N0} MB" -f $partName, $currentPaths.Count, ($currentBytes / 1MB))
+        New-ZipFromPaths -Paths $currentPaths -Destination $partPath
+        $partFiles += $partPath
+        $partRecords += [ordered]@{
+            file     = $partName
+            sha256   = (Get-FileHash -LiteralPath $partPath -Algorithm SHA256).Hash
+            packages = @($currentNames)
+        }
+    }
+
+    $manifestPath = Join-Path $releaseDir 'models-manifest.json'
+    $manifest = [ordered]@{
+        version           = $Version
+        packageCount      = $modelDirs.Count
+        packagesDirectory = 'argos-translate/packages'
+        parts             = @($partRecords)
+    }
+    $manifest | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+
+    Write-Host "=== Portable con modelli essenziali ==="
+    $essentialCodes = @('it', 'es', 'fr', 'pt', 'zh')
+    $essentialPaths = @($modelDirs | Where-Object { $essentialCodes -contains (Get-PairCode -Name $_.Name) } |
+        ForEach-Object { $_.FullName })
+    if ($essentialPaths.Count -eq 0) { throw 'Nessun modello essenziale selezionato.' }
+    $essentialManifestPath = Join-Path $releaseDir 'models-manifest-essenziali.json'
+    @{
+        version           = $Version
+        packageCount      = $essentialPaths.Count
+        packagesDirectory = 'argos-translate/packages'
+        parts             = @()
+    } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $essentialManifestPath -Encoding UTF8
+    $essentialStage = Join-Path $releaseDir 'portable-essential-stage'
+    $essentialApp = New-PortableStage -StagePath $essentialStage -RuntimeSource $runtimeSource `
+        -ManifestSource $essentialManifestPath -IncludePackages $essentialPaths
+    $essentialZip = Join-Path $releaseDir "GameTranslatorIT-Portable-Essenziali-$Version.zip"
+    New-ZipFromPaths -Paths @($essentialApp) -Destination $essentialZip
+
+    Write-Host "=== Portable completa (tutti i modelli, solo locale) ==="
+    if (-not $SkipFullPortable) {
+        if ([string]::IsNullOrWhiteSpace($FullPortableOutputPath)) {
+            $FullPortableOutputPath = Join-Path $env:USERPROFILE 'Downloads'
+        }
+        New-Item -ItemType Directory -Force -Path $FullPortableOutputPath | Out-Null
+        $fullManifestPath = Join-Path $releaseDir 'models-manifest-completo.json'
+        @{
+            version           = $Version
+            packageCount      = $modelDirs.Count
+            packagesDirectory = 'argos-translate/packages'
+            parts             = @()
+        } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $fullManifestPath -Encoding UTF8
+        $fullStage = Join-Path $releaseDir 'portable-full-stage'
+        $allPaths = @($modelDirs | ForEach-Object { $_.FullName })
+        $fullApp = New-PortableStage -StagePath $fullStage -RuntimeSource $runtimeSource `
+            -ManifestSource $fullManifestPath -IncludePackages $allPaths
+        $fullZip = Join-Path $FullPortableOutputPath "GameTranslatorIT-Portable-Completo-$Version.zip"
+        New-ZipFromPaths -Paths @($fullApp) -Destination $fullZip
+        Remove-Item -LiteralPath $fullStage -Recurse -Force
+    }
+}
+
+Write-Host "=== Portable standard (con runtime e manifest) ==="
+$standardStage = Join-Path $releaseDir 'portable-stage'
+$standardApp = New-PortableStage -StagePath $standardStage -RuntimeSource $runtimeSource -ManifestSource $manifestPath
 $zipPath = Join-Path $releaseDir "GameTranslatorIT-Portable-$Version.zip"
-if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
-Compress-Archive -Path $portableApp -DestinationPath $zipPath -CompressionLevel Optimal -Force
-Remove-Item -LiteralPath $portableStage -Recurse -Force
+New-ZipFromPaths -Paths @($standardApp) -Destination $zipPath
+
+if ($essentialStage -and (Test-Path -LiteralPath $essentialStage)) {
+    Remove-Item -LiteralPath $essentialStage -Recurse -Force
+}
+Remove-Item -LiteralPath $standardStage -Recurse -Force
 
 Write-Host "=== Checksum SHA256 ==="
 $assets = @(
     (Join-Path $releaseDir "GameTranslatorIT-Setup-$Version.exe"),
     $zipPath
 )
+if ($essentialZip) { $assets += $essentialZip }
 if (-not $SkipMsix) { $assets += (Join-Path $releaseDir "GameTranslatorIT-$Version.msix") }
+$assets += $partFiles
+if ($fullZip) { $assets += $fullZip }
 
 foreach ($asset in $assets) {
     if (-not (Test-Path -LiteralPath $asset)) { throw "Asset mancante: $asset" }
@@ -107,15 +309,19 @@ if (-not (Test-Path -LiteralPath $notes)) {
     [System.IO.File]::WriteAllText($notes, @"
 # GameTranslator IT $Version
 
-Supporto completo alle lingue: 58 lingue selezionabili, rilevamento automatico della sorgente, cambio lingua senza riavvio e fallback online esplicito per le 8 lingue senza modello Argos. Caratteri non latini e scrittura da destra a sinistra gestiti nell'overlay.
+Tutte le 58 lingue restano selezionabili, con rilevamento automatico della sorgente, cambio lingua senza riavvio e fallback online esplicito per le 8 lingue senza modello Argos.
 
 ## Asset pubblicati
-- GameTranslatorIT-Setup-$Version.exe (installer EXE)
-- GameTranslatorIT-Portable-$Version.zip (copia portable)
-- GameTranslatorIT-$Version.msix (pacchetto MSIX firmato)
+- GameTranslatorIT-Setup-$Version.exe (installer EXE, scarica i modelli al primo avvio)
+- GameTranslatorIT-Portable-$Version.zip (portable con runtime locale; usa gli archivi modello qui sotto oppure i modelli già installati nel profilo)
+- GameTranslatorIT-Portable-Essenziali-$Version.zip (portable offline con le coppie it/es/fr/pt/zh ↔ inglese)
+- GameTranslatorIT-Models-$Version.part*.zip + relativi .sha256 (100 modelli Argos, ricomposti automaticamente dall'app)
+- GameTranslatorIT-$Version.msix (pacchetto MSIX firmato, quando disponibile)
 - File `.sha256` corrispondenti per la verifica integrità
 
-Le impostazioni utente in `%APPDATA%\\GameTranslatorIT` vengono conservate.
+La copia completa con tutti i modelli (~10 GB) viene creata solo in locale, perché supera il limite GitHub di 2 GB per asset.
+
+Le impostazioni utente in `%APPDATA%\GameTranslatorIT` vengono conservate.
 "@)
 }
 
