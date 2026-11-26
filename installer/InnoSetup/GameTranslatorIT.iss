@@ -3,7 +3,7 @@
 
 #define MyAppName "GameTranslator IT"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.8"
+  #define MyAppVersion "1.0.9"
 #endif
 #define MyAppPublisher "GameTranslator IT"
 #define MyAppExeName "GameTranslatorIT.App.exe"

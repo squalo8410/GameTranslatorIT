@@ -2,7 +2,7 @@
 
 Software desktop Windows che rileva i sottotitoli dei videogiochi in 58 lingue, li traduce in qualsiasi altra lingua supportata in tempo reale e mostra il risultato in un overlay trasparente sopra il gioco.
 
-**Stato:** FASE 1–10 completate. EXE classico, MSIX firmato, copia portable (anche con tutti i 100 modelli inclusi), aggiornamenti automatici via GitHub Releases e supporto completo alle lingue richieste (versione 1.0.8).
+**Stato:** FASE 1–10 completate. EXE classico, MSIX firmato, copia portable (anche con tutti i 100 modelli inclusi), aggiornamenti automatici via GitHub Releases e supporto completo alle lingue richieste (versione 1.0.9).
 
 ---
 
@@ -80,7 +80,7 @@ Tutti gli output sono in `dist\installer\`.
 
 ### EXE classico — scegli tu la cartella
 
-`GameTranslatorIT-Setup-1.0.8.exe` (circa 55 MB), interfaccia solo in italiano.
+`GameTranslatorIT-Setup-1.0.9.exe` (circa 55 MB), interfaccia solo in italiano.
 Durante l'installazione compare la pagina **Cartella di destinazione**: puoi scegliere qualsiasi cartella. Il predefinito è `%LOCALAPPDATA%\Programs\GameTranslatorIT`, scrivibile senza diritti di amministratore.
 Al termine puoi installare il motore di traduzione locale e avviare l'app.
 
@@ -107,9 +107,9 @@ dotnet restore installer\MSIX\MsixTools.csproj
 
 ### Copia portable — scegli tu la cartella
 
-- `GameTranslatorIT-Portable-1.0.8.zip`: cartella `GameTranslatorIT` con app, runtime LibreTranslate autonomo (Python incluso) e launcher. Nessuna installazione, nessun registro modificato. Se accanto alla cartella estrai anche gli archivi `GameTranslatorIT-Models-1.0.8.part*.zip`, l'app li verifica (SHA256) e li estrae automaticamente in `Models\argos-translate\packages` al primo avvio; altrimenti usa i modelli installati nel profilo utente.
-- `GameTranslatorIT-Portable-Essenziali-1.0.8.zip`: stessa portable con già incluse le coppie italiano, spagnolo, francese, portoghese e cinese ↔ inglese (funziona subito offline).
-- `GameTranslatorIT-Portable-Completo-1.0.8.zip`: portable con **tutti i 100 modelli** (~10 GB). Viene generata solo in locale e non è pubblicata su GitHub perché supera il limite di 2 GB per asset.
+- `GameTranslatorIT-Portable-1.0.9.zip`: cartella `GameTranslatorIT` con app, runtime LibreTranslate autonomo (Python incluso) e launcher. Nessuna installazione, nessun registro modificato. Se accanto alla cartella estrai anche gli archivi `GameTranslatorIT-Models-1.0.9.part*.zip`, l'app li verifica (SHA256) e li estrae automaticamente in `Models\argos-translate\packages` al primo avvio; altrimenti usa i modelli installati nel profilo utente.
+- `GameTranslatorIT-Portable-Essenziali-1.0.9.zip`: stessa portable con già incluse le coppie italiano, spagnolo, francese, portoghese e cinese ↔ inglese (funziona subito offline).
+- `GameTranslatorIT-Portable-Completo-1.0.9.zip`: portable con **tutti i 100 modelli** (~10 GB). Viene generata solo in locale e non è pubblicata su GitHub perché supera il limite di 2 GB per asset.
 
 `installer\Portable\CopiaPortable.cmd` fa la stessa cosa con una finestra di selezione cartella.
 
