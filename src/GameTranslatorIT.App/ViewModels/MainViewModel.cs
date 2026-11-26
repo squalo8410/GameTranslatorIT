@@ -741,6 +741,46 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
+    /// Allinea pyvenv.cfg al percorso reale della portable: senza questo,
+    /// sys._base_executable punta al Python usato durante la build e i processi
+    /// figli di LibreTranslate non partono su un altro computer.
+    /// </summary>
+    private static void EnsurePortablePythonConfig(string portableRuntime)
+    {
+        var configPath = Path.Combine(portableRuntime, "pyvenv.cfg");
+        if (!File.Exists(configPath)) return;
+        var pythonHome = Path.Combine(portableRuntime, "Python");
+        var pythonExe = Path.Combine(pythonHome, "python.exe");
+        try
+        {
+            var lines = File.ReadAllLines(configPath);
+            var changed = false;
+            for (var index = 0; index < lines.Length; index++)
+            {
+                string? value = null;
+                if (lines[index].StartsWith("home =", StringComparison.OrdinalIgnoreCase))
+                    value = pythonHome;
+                else if (lines[index].StartsWith("executable =", StringComparison.OrdinalIgnoreCase))
+                    value = pythonExe;
+                else if (lines[index].StartsWith("command =", StringComparison.OrdinalIgnoreCase))
+                    value = $"{pythonExe} -m venv portable";
+                if (value is null) continue;
+
+                var prefix = lines[index].Substring(0, lines[index].IndexOf('=') + 1).TrimEnd();
+                var replacement = prefix + " " + value;
+                if (string.Equals(lines[index], replacement, StringComparison.OrdinalIgnoreCase)) continue;
+                lines[index] = replacement;
+                changed = true;
+            }
+            if (changed) File.WriteAllLines(configPath, lines);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"Configurazione Python portable non aggiornata: {ex.Message}");
+        }
+    }
+
+    /// <summary>
     /// Avvia LibreTranslate in background se è installato ma non risponde.
     /// L'utente non deve più lanciare a mano AvviaLibreTranslate.cmd.
     /// </summary>
@@ -761,20 +801,55 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _autoStartAttempted = true;
 
         var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        var portableExe = Path.Combine(AppContext.BaseDirectory, "Runtime", "LibreTranslate", "Scripts", "libretranslate.exe");
+        var appDirectory = AppContext.BaseDirectory;
+        var portableRuntime = Path.Combine(appDirectory, "Runtime", "LibreTranslate");
+        var portableExe = Path.Combine(portableRuntime, "Scripts", "libretranslate.exe");
+        var portablePython = Path.Combine(portableRuntime, "Scripts", "python.exe");
+        var portableLauncher = Path.Combine(portableRuntime, "avvia-libretranslate.py");
         var installedExe = Path.Combine(localAppData, "GameTranslatorIT", "LibreTranslate", "Scripts", "libretranslate.exe");
         var isPortable = File.Exists(portableExe);
-        var exe = isPortable ? portableExe : installedExe;
+
+        // I wrapper .exe generati da pip contengono il percorso assoluto della venv
+        // usata durante la build: sulle portable avviamo il Python incluso con uno
+        // script dedicato, così l'app funziona anche su un altro computer.
+        var usePortablePython = isPortable && File.Exists(portablePython) &&
+            File.Exists(portableLauncher) &&
+            Directory.Exists(Path.Combine(portableRuntime, "Python"));
+        var exe = usePortablePython ? portablePython
+            : isPortable ? portableExe
+            : installedExe;
         if (!File.Exists(exe)) return false;
 
         try
         {
-            var start = new ProcessStartInfo(exe, "--host 127.0.0.1 --port 5000 --disable-web-ui")
+            ProcessStartInfo start;
+            if (usePortablePython)
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = Path.GetDirectoryName(exe) ?? localAppData
-            };
+                EnsurePortablePythonConfig(portableRuntime);
+                start = new ProcessStartInfo(exe)
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = portableRuntime
+                };
+                foreach (var argument in new[]
+                         {
+                             portableLauncher, "--host", "127.0.0.1", "--port", "5000", "--disable-web-ui"
+                         })
+                {
+                    start.ArgumentList.Add(argument);
+                }
+                start.EnvironmentVariables["PYTHONHOME"] = Path.Combine(portableRuntime, "Python");
+            }
+            else
+            {
+                start = new ProcessStartInfo(exe, "--host 127.0.0.1 --port 5000 --disable-web-ui")
+                {
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = Path.GetDirectoryName(exe) ?? localAppData
+                };
+            }
             start.EnvironmentVariables["PYTHONIOENCODING"] = "utf-8";
 
             // Nelle edizioni portable i modelli viaggiano insieme all'app:

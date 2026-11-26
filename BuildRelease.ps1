@@ -3,6 +3,7 @@ param(
     [switch]$SkipMsix,
     [switch]$SkipFullPortable,
     [switch]$SkipModelAssets,
+    [switch]$ReuseModelParts,
     [string]$PfxPath = '',
     [string]$PfxPassword = '',
     [string]$RuntimeLibreTranslatePath = '',
@@ -197,35 +198,78 @@ else {
     Write-Host "=== Archivi modello per GitHub (max 1,6 GB ciascuno) ==="
     $partLimit = 1600MB
     $partRecords = @()
-    $index = 0
-    while ($index -lt $modelDirs.Count) {
-        $currentPaths = @()
-        $currentNames = @()
-        $currentBytes = 0
-        while ($index -lt $modelDirs.Count) {
-            $dir = $modelDirs[$index]
-            $bytes = (Get-ChildItem -LiteralPath $dir.FullName -Recurse -File |
-                Measure-Object -Property Length -Sum).Sum
-            if ($currentPaths.Count -gt 0 -and ($currentBytes + $bytes) -gt $partLimit) { break }
-            $currentPaths += $dir.FullName
-            $currentNames += $dir.Name
-            $currentBytes += $bytes
-            $index++
+    $reusedParts = $false
+    $manifestPath = Join-Path $releaseDir 'models-manifest.json'
+
+    # Dopo un'interruzione della build è possibile riutilizzare le parti già
+    # create, ma solo se integrità e elenco pacchetti coincidono col manifest.
+    if ($ReuseModelParts -and (Test-Path -LiteralPath $manifestPath)) {
+        try {
+            $previous = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+            if ($previous.version -ne $Version -or $previous.packageCount -ne $modelDirs.Count) {
+                throw 'Versione o numero di pacchetti diverso.'
+            }
+            $candidateFiles = @()
+            $candidateRecords = @()
+            foreach ($part in @($previous.parts)) {
+                $partPath = Join-Path $releaseDir $part.file
+                if (-not (Test-Path -LiteralPath $partPath)) { throw "Parte mancante: $($part.file)" }
+                $hash = (Get-FileHash -LiteralPath $partPath -Algorithm SHA256).Hash
+                if ($hash -ne $part.sha256) { throw "Hash diverso per $($part.file)" }
+                $candidateFiles += $partPath
+                $candidateRecords += [ordered]@{
+                    file     = $part.file
+                    sha256   = $hash
+                    packages = @($part.packages)
+                }
+            }
+            $expectedNames = @($modelDirs | ForEach-Object { $_.Name } | Sort-Object)
+            $actualNames = @($candidateRecords | ForEach-Object { $_.packages } | Sort-Object)
+            if (@(Compare-Object -ReferenceObject $expectedNames -DifferenceObject $actualNames).Count -gt 0) {
+                throw 'Elenco pacchetti del manifest diverso dalla cartella modelli.'
+            }
+            $partFiles = $candidateFiles
+            $partRecords = $candidateRecords
+            $reusedParts = $true
+            Write-Host "Riutilizzate $($partFiles.Count) parti modello verificate."
         }
-        $partNumber = $partFiles.Count + 1
-        $partName = 'GameTranslatorIT-Models-{0}.part{1:00}.zip' -f $Version, $partNumber
-        $partPath = Join-Path $releaseDir $partName
-        Write-Host ("{0}: {1} pacchetti, {2:N0} MB" -f $partName, $currentPaths.Count, ($currentBytes / 1MB))
-        New-ZipFromPaths -Paths $currentPaths -Destination $partPath
-        $partFiles += $partPath
-        $partRecords += [ordered]@{
-            file     = $partName
-            sha256   = (Get-FileHash -LiteralPath $partPath -Algorithm SHA256).Hash
-            packages = @($currentNames)
+        catch {
+            $partFiles = @()
+            $partRecords = @()
+            Write-Host "Riutilizzo parti non possibile: $($_.Exception.Message). Rigenerazione."
         }
     }
 
-    $manifestPath = Join-Path $releaseDir 'models-manifest.json'
+    if (-not $reusedParts) {
+        $index = 0
+        while ($index -lt $modelDirs.Count) {
+            $currentPaths = @()
+            $currentNames = @()
+            $currentBytes = 0
+            while ($index -lt $modelDirs.Count) {
+                $dir = $modelDirs[$index]
+                $bytes = (Get-ChildItem -LiteralPath $dir.FullName -Recurse -File |
+                    Measure-Object -Property Length -Sum).Sum
+                if ($currentPaths.Count -gt 0 -and ($currentBytes + $bytes) -gt $partLimit) { break }
+                $currentPaths += $dir.FullName
+                $currentNames += $dir.Name
+                $currentBytes += $bytes
+                $index++
+            }
+            $partNumber = $partFiles.Count + 1
+            $partName = 'GameTranslatorIT-Models-{0}.part{1:00}.zip' -f $Version, $partNumber
+            $partPath = Join-Path $releaseDir $partName
+            Write-Host ("{0}: {1} pacchetti, {2:N0} MB" -f $partName, $currentPaths.Count, ($currentBytes / 1MB))
+            New-ZipFromPaths -Paths $currentPaths -Destination $partPath
+            $partFiles += $partPath
+            $partRecords += [ordered]@{
+                file     = $partName
+                sha256   = (Get-FileHash -LiteralPath $partPath -Algorithm SHA256).Hash
+                packages = @($currentNames)
+            }
+        }
+    }
+
     $manifest = [ordered]@{
         version           = $Version
         packageCount      = $modelDirs.Count
