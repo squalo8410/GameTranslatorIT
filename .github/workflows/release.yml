@@ -145,15 +145,19 @@ jobs:
           # GameTranslatorIT-Models*.zip e le portable con modelli vengono caricati
           # separatamente dalla build locale. La CI pubblica EXE, portable standard,
           # MSIX, archivio/manifest del differenziale e i relativi .sha256.
-          $params = @('-Version', $env:VERSION, '-SkipModelAssets')
-          if (-not [string]::IsNullOrWhiteSpace($env:DELTA_BASE)) { $params += @('-DeltaBasePath', $env:DELTA_BASE) }
+          $buildParams = @{
+            Version = $env:VERSION
+            SkipModelAssets = $true
+          }
+          if (-not [string]::IsNullOrWhiteSpace($env:DELTA_BASE)) { $buildParams.DeltaBasePath = $env:DELTA_BASE }
           if ($env:MSIX_SKIP -eq 'false') {
-            $params += @('-PfxPath', $env:PFX_PATH, '-PfxPassword', $env:PFX_PASSWORD)
+            $buildParams.PfxPath = $env:PFX_PATH
+            $buildParams.PfxPassword = $env:PFX_PASSWORD
           }
           else {
-            $params += '-SkipMsix'
+            $buildParams.SkipMsix = $true
           }
-          & .\BuildRelease.ps1 @params
+          & .\BuildRelease.ps1 @buildParams
           if ($LASTEXITCODE -ne 0) { throw "BuildRelease.ps1 non riuscita." }
 
       - name: Pubblica la release GitHub
