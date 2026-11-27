@@ -125,7 +125,7 @@ jobs:
           $zip = @(Get-ChildItem -LiteralPath $download -Filter '*.zip' | Where-Object {
             $_.Name -notmatch 'Essenziali|Completo'
           } | Select-Object -First 1)
-          if ($zip.Count -eq 0) { Write-Host "ZIP portable non trovato in $previous: si procede senza delta."; exit 0 }
+          if ($zip.Count -eq 0) { Write-Host "ZIP portable non trovato in ${previous}: si procede senza delta."; exit 0 }
           Expand-Archive -LiteralPath $zip[0].FullName -DestinationPath $extract -Force
           $app = @(Get-ChildItem -LiteralPath $extract -Directory | Select-Object -First 1)
           if ($app.Count -eq 0) { Write-Host "Cartella app non trovata: si procede senza delta."; exit 0 }
