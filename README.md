@@ -112,7 +112,7 @@ dotnet restore installer\MSIX\MsixTools.csproj
 ### Copia portable — scegli tu la cartella
 
 - `GameTranslatorIT-Portable-1.1.0.zip`: cartella `GameTranslatorIT` con app, runtime LibreTranslate autonomo (Python incluso) e launcher. Nessuna installazione, nessun registro modificato. Se accanto alla cartella estrai anche gli archivi `GameTranslatorIT-Models-1.0.9.part*.zip`, l'app li verifica (SHA256) e li estrae automaticamente in `Models\argos-translate\packages` al primo avvio; altrimenti usa i modelli installati nel profilo utente.
-- `GameTranslatorIT-Portable-Essenziali-1.1.0.zip`: stessa portable con già incluse le coppie italiano, spagnolo, francese, portoghese e cinese ↔ inglese (funziona subito offline).
+- `GameTranslatorIT-Portable-Essenziali-1.1.0.zip`: **non pubblicata nella release CI 1.1.0**, perché la build salta i modelli da ~10 GB. Resta disponibile `GameTranslatorIT-Portable-Essenziali-1.0.9.zip`; per generarla in locale esegui `BuildRelease.ps1 -Version 1.1.0` senza `-SkipModelAssets`.
 - `GameTranslatorIT-Portable-Completo-1.1.0.zip`: portable con **tutti i 100 modelli** (~10 GB). Viene generata solo in locale e non è pubblicata su GitHub perché supera il limite di 2 GB per asset.
 
 `installer\Portable\CopiaPortable.cmd` fa la stessa cosa con una finestra di selezione cartella.

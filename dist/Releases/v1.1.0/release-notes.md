@@ -15,7 +15,7 @@ Release pubblica successiva a `v1.0.9`. L'aggiornamento automatico la rileva e p
 
 - `GameTranslatorIT-Setup-1.1.0.exe`: installer EXE.
 - `GameTranslatorIT-Portable-1.1.0.zip`: portable con runtime locale; usa i modelli già installati nel profilo.
-- `GameTranslatorIT-Portable-Essenziali-1.1.0.zip`: portable offline con le coppie it/es/fr/pt/zh ↔ inglese.
+- `GameTranslatorIT-Portable-Essenziali-1.1.0.zip`: **non pubblicata in questa release CI** (la build salta i modelli da ~10 GB). Resta disponibile `GameTranslatorIT-Portable-Essenziali-1.0.9.zip`; la versione 1.1.0 può essere generata in locale con `BuildRelease.ps1` senza `-SkipModelAssets`.
 - `GameTranslatorIT-Delta-1.1.0.zip` e `GameTranslatorIT-1.1.0-(installer|portable)-manifest.json`: aggiornamento solo dei file cambiati.
 - `GameTranslatorIT-1.1.0.msix`: incluso solo se il certificato di firma è configurato nel repository.
 - File `.sha256` corrispondenti per la verifica integrità.
