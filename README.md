@@ -58,7 +58,9 @@ Dalla finestra principale, nel pannello **DISPOSITIVI IN USCITA**, si può scegl
 | Overlay | Finestra layered WPF (`WS_EX_LAYERED`, `WS_EX_NOACTIVATE`, `WS_EX_TRANSPARENT`, `WM_NCHITTEST → HTTRANSPARENT`), sempre in primo piano, spostabile/ridimensionabile in modalità modifica, testo IT o EN+IT. |
 | Voce e dispositivi | `SpeechSynthesizer` con qualunque voce Windows installata selezionabile (predefinita: prima italiana); volume/velocità; uscita instradata tramite `AudioGraph` su un dispositivo scelto o, in parallelo, su tutte le uscite attive. Microfoni/ingressi audio enumerati da Core Audio e WinRT. La lettura non blocca la visualizzazione testuale. |
 | Fallback schermo intero | Monitor secondario e/o lettura vocale forzata configurabili; avviso esplicito nell'UI. |
-| Impostazioni | Salvataggio JSON in `%APPDATA%\GameTranslatorIT\settings.json`; ogni controllo è collegato a un comportamento reale. |
+| Impostazioni | Salvataggio atomico in `%APPDATA%\GameTranslatorIT\settings.json` (o in `settings.json` accanto all'exe portable quando presente); file in sola lettura e permessi gestiti con errore esplicito, mai sovrascritti in caso di lettura fallita. |
+| Selezioni | `ELIMINA SELEZIONE` rimuove davvero il riquadro scelto, aggiorna `RegionCount` prima del salvataggio, azzera voce/overlay/coda e riavvia la pipeline. `Disattiva` mantiene la selezione salvata. Le due operazioni sono distinte. |
+| Lingue | `INSTALLA TUTTE LE LINGUE` installa solo le 50 coppie Argos locali mancanti usando l'indice già impiegato dall'installer; mostra avanzamento, conteggio installate/mancanti e lingua corrente. `Riprova fallimenti` ripete solo quelle non riuscite. |
 
 ---
 
@@ -88,7 +90,9 @@ Ricostruzione:
 
 ```powershell
 .\installer\publish.ps1
-& "C:\Users\corci\AppData\Local\Programs\Inno Setup 6\ISCC.exe" installer\InnoSetup\GameTranslatorIT.iss
+# ISCC.exe viene cercato nel PATH, nelle cartelle standard e in
+# %LOCALAPPDATA%\Programs\Inno Setup 6: nessun percorso legato all'utente.
+& .\BuildRelease.ps1 -SkipMsix -SkipModelAssets
 ```
 
 ### MSIX — firmato, ma senza scelta della cartella
@@ -144,6 +148,22 @@ GET https://api.github.com/repos/squalo8410/GameTranslatorIT/releases/latest
 - La finestra **Aggiornamento disponibile** mostra note, avanzamento e pulsanti **Ignora questa versione**, **Apri pagina release**, **Chiudi**, **Scarica e installa**.
 - In **Impostazioni → AGGIORNAMENTI** si può disattivare il controllo all'avvio e scegliere l'intervallo (1–168 ore; predefinito 6).
 
+### Aggiornamento differenziale (manifest)
+
+Oltre al pacchetto completo, la release può pubblicare `GameTranslatorIT-<versione>-installer-manifest.json` e `GameTranslatorIT-<versione>-portable-manifest.json`, con il relativo `.sha256`. Il manifest dichiara `schemaVersion`, `version`, `tag`, `channel`, `delta` (asset, URL, SHA256, dimensione), `full` (pacchetto di fallback) e `files[]` (`path`, `sha256`, `size`, `action`, `kind`).
+
+Flusso reale:
+
+1. L'app scarica il manifest del proprio canale e ne verifica l'hash con il `.sha256` vicino; controlla che versione e canale coincidano.
+2. Confronta gli hash dei file locali: quelli già uguali non vengono toccati né riscaricati.
+3. Scarica **solo** `GameTranslatorIT-Delta-<versione>.zip`, ne verifica SHA256/dimensione e verifica nuovamente l'hash di ogni file estratto.
+4. Scrive un piano in `%TEMP%\GameTranslatorIT\Updates\<versione>`, avvia uno script PowerShell esterno che attende la chiusura dell'app, crea un backup dei file sostituiti, applica il piano nella **stessa cartella** e riavvia l'app.
+5. Al riavvio l'app scrive il file di commit: se non succede entro 90 secondi, lo script ripristina i file dal backup in ordine inverso. L'MSIX resta un aggiornamento completo, perché Windows non consente la sostituzione dei file dei pacchetti installati.
+
+Dal manifest sono esclusi `settings.json`, `Models/**`, `Runtime/**`, `tools/**`, `__pycache__/**`, `*.pyc`, `unins000.*`, log, glossary e file `.sha256`: impostazioni, selezioni, lingue installate e dati creati dall'utente non vengono mai toccati.
+
+**Cosa devi configurare:** null per usare GitHub Releases del repository `squalo8410/GameTranslatorIT`. Se vuoi una fonte diversa, imposta in **Impostazioni → AGGIORNAMENTI → URL manifest aggiornamenti** un URL HTTPS (oppure la variabile `GITUPDATER_MANIFEST_URL`, che ha priorità); il manifest può indicare URL assoluti per l'archivio delta. Per un'API di release alternativa esiste `GITUPDATER_API_URL` (HTTPS, oppure HTTP su localhost per i test). Il token Bearer resta confinato agli host GitHub. Nessun server, URL o credenziale è inventato dal codice.
+
 ### Preparare una release
 
 ```powershell
@@ -153,12 +173,16 @@ git commit -m "Release 1.0.1"
 git tag v1.0.1
 git push origin main --tags
 
-# Build locale completa: scrive su G:\GameTranslatorIT-Releases e mette la portable completa in Downloads
-.\BuildRelease.ps1 -Version 1.0.7 -ReleaseOutputPath 'G:\GameTranslatorIT-Releases' `
-    -FullPortableOutputPath "$env:USERPROFILE\Downloads" -PfxPath '...' -PfxPassword '...'
+# Build locale completa: scrive su una cartella a scelta e mette la portable completa in Downloads.
+# -DeltaBasePath è la cartella della versione PRECEDENTE: senza di essa l'archivio
+# contiene tutti i file dell'app (fallback valido, ma non differenziale).
+.\BuildRelease.ps1 -Version 1.0.7 -ReleaseOutputPath "$env:USERPROFILE\GameTranslatorIT-Releases" `
+    -FullPortableOutputPath "$env:USERPROFILE\Downloads" `
+    -DeltaBasePath "$env:USERPROFILE\GameTranslatorIT-Releases\v1.0.6\portable-stage\GameTranslatorIT" `
+    -PfxPath '...' -PfxPassword '...'
 ```
 
-Il workflow `.github/workflows/release.yml` pubblica la release quando viene pushato un tag `v*`. Pubblica EXE, portable standard, MSIX (se disponibile) e i relativi `.sha256` con la `GITHUB_TOKEN` integrata di Actions. I modelli da 10 GB non vengono costruiti in CI (`-SkipModelAssets`): dopo il workflow carica dalla build locale, con `gh release upload <tag> ... --clobber`, la portable standard aggiornata (contiene il manifest), `GameTranslatorIT-Portable-Essenziali-*`, `GameTranslatorIT-Models-*.part*.zip` e tutti i loro `.sha256`.
+Il workflow `.github/workflows/release.yml` pubblica la release quando viene pushato un tag `v*`. Scarica la portable della release precedente, la usa come baseline e pubblica EXE, portable standard, MSIX (se disponibile), archivio delta, manifest `.json` e relativi `.sha256` con la `GITHUB_TOKEN` integrata di Actions. I modelli da 10 GB non vengono costruiti in CI (`-SkipModelAssets`): dopo il workflow carica dalla build locale, con `gh release upload <tag> ... --clobber`, `GameTranslatorIT-Portable-Essenziali-*`, `GameTranslatorIT-Models-*.part*.zip` e tutti i loro `.sha256`.
 
 Per includere l'MSIX firmato configura due secret del repository:
 
@@ -232,3 +256,33 @@ Le richieste usano UTF-8 (form-urlencoded o query codificata). L'overlay adotta 
 - `source=auto` traduce correttamente (inglese, giapponese, arabo, russo).
 - Con fallback disattivato le 8 lingue vengono rifiutate con un messaggio in italiano.
 - Cambio lingua e provider applicati a caldo, senza riavvio dell'applicazione.
+
+---
+
+## 10. Verifiche eseguite e procedura per PC pulito
+
+### Verifiche eseguite in questa sessione
+
+- `dotnet build GameTranslatorIT.sln -c Release`: **0 avvisi, 0 errori**.
+- DLL e PDB distribuiti: **nessun percorso assoluto del PC di sviluppo** (`PathMap` in `Directory.Build.props`, verificato con ricerca nei binari).
+- `BuildRelease.ps1`: sintassi PowerShell valida; generazione manifest/delta testata con cartella corrente e baseline simulata. Verificato che il ZIP contenga **solo i file cambiati**, che i file rimossi abbiano `action=delete`, che `settings.json` e `Models/**` siano esclusi e che SHA256/dimensione del manifest coincidano con l'archivio.
+- Updater esterno differenziale: script generato valido; test di **sostituzione + commit** (file aggiornato, `settings.json` invariato, journal `committed`) e test di **fallimento + rollback** (primo file ripristinato, journal `failed`) superati.
+- Persistenza: test isolato su `JsonSettingsService` con `settings.json` portable, file in sola lettura, ID duplicati corretti, **eliminazione reale persistita dopo riavvio** e file corrotto segnalato senza sovrascrittura.
+- Verifiche già eseguite nelle fasi precedenti: rilevamento 58 lingue, 50 modelli locali presenti in `/languages`, 8 lingue online tradotte una per una, cambio lingua a caldo, end-to-end `1.0.8 → 1.0.9` con profilo pulito.
+
+### Verifiche NON eseguite
+
+- **Installazione su un secondo PC fisico pulito**: non disponibile in questa sessione.
+- Monitor/finestre reali, audio/TTS, creazione/edizione selezioni, installazione di una singola lingua e di tutte le lingue mancanti, riscaricamento zero, aggiornamento di un singolo file nella cartella reale, conservazione dei dati e rollback **sull'app installata**: non eseguiti su PC diverso da quello di sviluppo. I test qui sopra sono simulazioni isolate e non sostituiscono la verifica hardware.
+
+### Procedura da eseguire su PC pulito
+
+1. Copiare `GameTranslatorIT-Setup-<versione>.exe` e il relativo `.sha256` su un PC senza Python e senza profilo `GameTranslatorIT`. Verificare con `Get-FileHash -Algorithm SHA256` che l'hash coincida.
+2. Eseguire l'EXE, scegliere una cartella qualsiasi e confermare il collegamento desktop se previsto. Controllare che la cartella predefinita sia `%LOCALAPPDATA%\Programs\GameTranslatorIT`, che non servano diritti di amministratore e che nel log non compaia alcun percorso `C:\Users\corci`.
+3. Avviare l'app: verificare enumerazione monitor e finestre, **Trova il gioco attivo**, overlay su gioco in finestra/borderless e fallback su monitor secondario o sola voce in schermo intero esclusivo.
+4. Nei dispositivi scegliere uscita audio, microfono e voce TTS italiana reali; provare F1–F12 (muto), Ctrl+F1–F12 (selezione) e Ctrl+Alt+F1–F12 (disattiva).
+5. Creare quattro selezioni, eliminarne una con **ELIMINA SELEZIONE**, confermare e riavviare l'app: la selezione eliminata non deve ricomparire, le altre devono restare identiche. Verificare che **Disattiva** invece la mantenga salvata.
+6. Avviare il servizio locale e premere **INSTALLA TUTTE LE LINGUE**: verificare progresso, conteggio installate/mancanti e lingua corrente; ripetere per controllare il messaggio `" tutte le lingue sono già installate "`. Disconnettere la rete durante un pacchetto e usare **Riprova fallimenti**: non devono essere reinstallate quelle riuscite.
+7. Per l'aggiornamento differenziale reale, pubblicare un manifest con un solo file modificato e verificare nel log `"1 file da sostituire, N invariati"`, il controllo SHA256, la stessa cartella di installazione e la conservazione di impostazioni/selezioni/modelli. Rimuovendo il file `commit-<versione>.json` prima del riavvio si deve verificare il rollback dal backup in `%TEMP%`.
+8. Estrarre la portable ZIP in una cartella a piacere su PC senza Python: il launcher `Avvia GameTranslator IT.cmd` deve avviare l'app con il runtime incluso, senza richiedere il percorso della macchina di build.
+

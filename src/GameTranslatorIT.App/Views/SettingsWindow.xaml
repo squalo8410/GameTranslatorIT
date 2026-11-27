@@ -250,7 +250,8 @@
                                                           SelectedItem="{Binding MuteMode}" Width="120"
                                                           ToolTip="Cosa fa il muto su questo riquadro"
                                                           DockPanel.Dock="Right" />
-                                                <Button Content="Rimuovi selezione" Click="RemoveRegionSetting_Click"
+                                                <Button Content="Disattiva selezione" Click="RemoveRegionSetting_Click"
+                                                        ToolTip="La selezione resta salvata; usi ELIMINA SELEZIONE nel pannello per rimuoverla"
                                                         Margin="0,0,8,0" DockPanel.Dock="Right" />
                                                 <Button Content="Seleziona con il mouse…" Click="SelectRegionSetting_Click"
                                                         HorizontalAlignment="Left" />
@@ -342,12 +343,39 @@
                             <CheckBox x:Name="ShowGitHubTokenCheck" Content="Mostra" Margin="8,0,0,0"
                                       VerticalAlignment="Center" Click="ShowGitHubToken_Changed" />
                         </DockPanel>
+                        <TextBlock Text="URL manifest aggiornamenti (facoltativo)" Style="{StaticResource Muted}"
+                                    Margin="0,10,0,4" />
+                        <TextBox x:Name="UpdateManifestUrlBox" Width="520" HorizontalAlignment="Left"
+                                 Text="{Binding UpdateManifestUrl, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="HTTPS di un manifest custom. Vuoto = si usa l'asset della release GitHub. La variabile GITUPDATER_MANIFEST_URL ha la priorità." />
                         <TextBlock Style="{StaticResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap">
                             La traduzione resta locale. Solo il controllo aggiornamenti contatta GitHub Releases;
                             se la rete non è disponibile l'app continua a funzionare. Il token, se inserito, resta
                             nel tuo profilo Windows e non viene mai incluso negli asset pubblicati. La variabile
                             GITHUB_TOKEN, se presente, ha la priorità su questo campo. Una bozza privata non è
                             rilevata dall'aggiornamento automatico: per scaricare da solo serve una release pubblicata.
+                            Con un manifest l'app confronta gli hash locali e scarica solo i file cambiati nella
+                            stessa cartella; se il manifest non c'è usa comunque il pacchetto completo.
+                        </TextBlock>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource Card}" Margin="0,0,0,12">
+                    <StackPanel>
+                        <TextBlock Text="LINGUE E MODELLI LOCALI" Style="{StaticResource SubHeading}" />
+                        <TextBlock Text="Percorso python.exe (facoltativo)" Style="{StaticResource Muted}" Margin="0,8,0,4" />
+                        <TextBox x:Name="LanguagePythonPathBox" Width="520" HorizontalAlignment="Left"
+                                 Text="{Binding LanguageInstallPythonPath, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Vuoto = runtime portable, poi venv installata, poi PATH" />
+                        <TextBlock Text="Cartella pacchetti Argos (facoltativa)" Style="{StaticResource Muted}"
+                                    Margin="0,8,0,4" />
+                        <TextBox x:Name="ArgosPackagesDirectoryBox" Width="520" HorizontalAlignment="Left"
+                                 Text="{Binding ArgosPackagesDirectory, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="Vuoto = cartella Models della portable o cartella predefinita di Argos Translate" />
+                        <TextBlock Style="{StaticResource Muted}" Margin="0,8,0,0" TextWrapping="Wrap">
+                            Il pulsante INSTALLA TUTTE LE LINGUE usa l'indice e i download di Argos Translate già
+                            impiegati dall'installer: installa solo le 50 coppie locali mancanti, non inventa URL
+                            né pacchetti, e non ripete quelle già riuscite in caso di Riprova fallimenti.
                         </TextBlock>
                     </StackPanel>
                 </Border>

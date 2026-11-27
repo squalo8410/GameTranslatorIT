@@ -9,7 +9,9 @@ param(
     [string]$RuntimeLibreTranslatePath = '',
     [string]$ModelsSourcePath = '',
     [string]$FullPortableOutputPath = '',
-    [string]$ReleaseOutputPath = ''
+    [string]$ReleaseOutputPath = '',
+    [string]$RepositoryUrl = 'https://github.com/squalo8410/GameTranslatorIT',
+    [string]$DeltaBasePath = ''
 )
 $ErrorActionPreference = 'Stop'
 
@@ -115,6 +117,139 @@ start "" "%~dp0GameTranslatorIT.App.exe"
     return $app
 }
 
+# File dell'app che possono essere aggiornati in place. Dati utente, modelli,
+# runtime Python e file del sistema di installazione restano fuori dal manifest:
+# un aggiornamento non deve mai sovrascriverli.
+function Get-AppFiles {
+    param([Parameter(Mandatory = $true)][string]$Root)
+    if (-not (Test-Path -LiteralPath $Root)) { return @() }
+
+    $result = @()
+    $rootFull = [System.IO.Path]::GetFullPath($Root).TrimEnd('\', '/')
+    $prefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
+    foreach ($file in Get-ChildItem -LiteralPath $Root -Recurse -File -Force) {
+        if (-not $file.FullName.StartsWith($prefix, [System.StringComparison]::OrdinalIgnoreCase)) { continue }
+        $relative = $file.FullName.Substring($prefix.Length).Replace('\', '/')
+        if ($relative -match '(^|/)(Models|Runtime|images|tools|__pycache__)(/|$)' -or
+            $relative -eq 'settings.json' -or $relative -eq 'AppxManifest.xml' -or
+            $relative -eq '.models-ready' -or $relative -eq '.gtit-runtime-ready' -or
+            $relative -eq 'pyvenv.cfg' -or $relative -eq 'Avvia GameTranslator IT.cmd' -or
+            $relative -match '(^|/)unins000\.' -or $relative -match '\.gtit-tmp$' -or
+            $file.Extension -in @('.pdb', '.sha256', '.md')) { continue }
+
+        $result += [pscustomobject]@{
+            FullName = $file.FullName
+            Relative = $relative
+            Sha256   = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash
+            Size     = $file.Length
+        }
+    }
+    return $result
+}
+
+# Confronta la build corrente con la cartella della versione precedente e crea:
+# - un ZIP con i soli file nuovi/modificati;
+# - un manifest per canale con hash di TUTTI i file, così il client salta gli invariati.
+function New-DeltaArtifacts {
+    param(
+        [Parameter(Mandatory = $true)][string]$CurrentDir,
+        [Parameter(Mandatory = $true)][string]$ReleaseDir,
+        [Parameter(Mandatory = $true)][string]$DeltaBase,
+        [Parameter(Mandatory = $true)][string]$Version,
+        [Parameter(Mandatory = $true)][string]$RepoUrl
+    )
+
+    $current = @(Get-AppFiles -Root $CurrentDir)
+    $baseline = @(if ([string]::IsNullOrWhiteSpace($DeltaBase)) { @() } else { Get-AppFiles -Root $DeltaBase })
+    $baselineMap = @{}
+    foreach ($item in $baseline) { $baselineMap[$item.Relative] = $item }
+    $currentMap = @{}
+    foreach ($item in $current) { $currentMap[$item.Relative] = $item }
+
+    $changed = @()
+    $entries = @()
+    foreach ($item in $current) {
+        $entries += [ordered]@{
+            path   = $item.Relative
+            sha256 = $item.Sha256
+            size   = $item.Size
+            kind   = 'app'
+            action = 'replace'
+        }
+        $old = $baselineMap[$item.Relative]
+        if (-not $old -or $old.Sha256 -ne $item.Sha256 -or $old.Size -ne $item.Size) { $changed += $item }
+    }
+    foreach ($item in $baseline) {
+        if (-not $currentMap.ContainsKey($item.Relative)) {
+            $entries += [ordered]@{
+                path   = $item.Relative
+                sha256 = $item.Sha256
+                size   = $item.Size
+                kind   = 'app'
+                action = 'delete'
+            }
+        }
+    }
+
+    $deltaName = ''
+    $deltaHash = ''
+    $deltaSize = 0
+    if ($changed.Count -gt 0) {
+        $deltaName = "GameTranslatorIT-Delta-$Version.zip"
+        $deltaZip = Join-Path $ReleaseDir $deltaName
+        $deltaStage = Join-Path $ReleaseDir 'delta-stage'
+        if (Test-Path -LiteralPath $deltaStage) { Remove-Item -LiteralPath $deltaStage -Recurse -Force }
+        New-Item -ItemType Directory -Force -Path $deltaStage | Out-Null
+        foreach ($item in $changed) {
+            $target = Join-Path $deltaStage $item.Relative
+            $parent = Split-Path -Parent $target
+            if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+            Copy-Item -LiteralPath $item.FullName -Destination $target -Force
+        }
+        if (Test-Path -LiteralPath $deltaZip) { Remove-Item -LiteralPath $deltaZip -Force }
+        $payload = @(Get-ChildItem -LiteralPath $deltaStage -Recurse -File | ForEach-Object { $_.FullName })
+        Compress-Archive -Path $payload -DestinationPath $deltaZip -CompressionLevel Optimal -Force
+        Remove-Item -LiteralPath $deltaStage -Recurse -Force
+        $deltaHash = (Get-FileHash -LiteralPath $deltaZip -Algorithm SHA256).Hash
+        $deltaSize = (Get-Item -LiteralPath $deltaZip).Length
+    }
+
+    $fullAssets = @{
+        installer = "GameTranslatorIT-Setup-$Version.exe"
+        portable  = "GameTranslatorIT-Portable-$Version.zip"
+    }
+    $deltaUrl = ''
+    if (-not [string]::IsNullOrWhiteSpace($deltaName)) {
+        $deltaUrl = "$RepoUrl/releases/download/v$Version/$deltaName"
+    }
+    foreach ($channel in @('installer', 'portable')) {
+        $manifest = [ordered]@{
+            schemaVersion = 1
+            version       = $Version
+            tag           = "v$Version"
+            channel       = $channel
+            releaseUrl    = "$RepoUrl/releases/tag/v$Version"
+            delta         = [ordered]@{
+                asset  = $deltaName
+                url    = $deltaUrl
+                sha256 = $deltaHash
+                size   = $deltaSize
+            }
+            full          = [ordered]@{
+                asset  = $fullAssets[$channel]
+                url    = "$RepoUrl/releases/download/v$Version/$($fullAssets[$channel])"
+                sha256 = ''
+                size   = 0
+            }
+            files         = @($entries)
+        }
+        $manifestPath = Join-Path $ReleaseDir "GameTranslatorIT-$Version-$channel-manifest.json"
+        $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+        Write-Host "Manifest ${channel}: $($entries.Count) file, $($changed.Count) cambiati"
+    }
+    return $deltaName
+}
+
 Write-Host "=== Pubblicazione $Version ==="
 # I file generati dal passaggio MSIX non devono finire nell'installer EXE.
 foreach ($stale in @((Join-Path $publishDir 'AppxManifest.xml'), (Join-Path $publishDir 'images'))) {
@@ -123,13 +258,19 @@ foreach ($stale in @((Join-Path $publishDir 'AppxManifest.xml'), (Join-Path $pub
 & (Join-Path $root 'installer\publish.ps1') -Version $Version
 if ($LASTEXITCODE -ne 0) { throw "Pubblicazione non riuscita." }
 
+# Marker letto da UpdateService.CurrentVersion: un aggiornamento che sostituisce
+# solo questo file aggiorna la versione senza riscrivere tutti i binari.
+[System.IO.File]::WriteAllText(
+    (Join-Path $publishDir 'version.json'),
+    ('{{"version":"{0}"}}' -f $Version) + "`n")
+
 Write-Host "=== Installer EXE ==="
 $iscc = (Get-Command ISCC.exe -ErrorAction SilentlyContinue).Source
 if ([string]::IsNullOrWhiteSpace($iscc)) {
     $candidates = @(
         (Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'),
         (Join-Path $env:ProgramFiles 'Inno Setup 6\ISCC.exe'),
-        'C:\Users\corci\AppData\Local\Programs\Inno Setup 6\ISCC.exe'
+        (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe')
     )
     $iscc = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 }
@@ -330,6 +471,14 @@ if ($essentialStage -and (Test-Path -LiteralPath $essentialStage)) {
 }
 Remove-Item -LiteralPath $standardStage -Recurse -Force
 
+Write-Host "=== Manifest e aggiornamento differenziale ==="
+if ([string]::IsNullOrWhiteSpace($DeltaBasePath) -or -not (Test-Path -LiteralPath $DeltaBasePath)) {
+    Write-Host "Nessuna cartella della versione precedente: l'archivio conterrà tutti i file dell'app."
+    Write-Host "Per un vero delta passa -DeltaBasePath con la cartella della versione installata in precedenza."
+}
+$deltaName = New-DeltaArtifacts -CurrentDir $publishDir -ReleaseDir $releaseDir `
+    -DeltaBase $DeltaBasePath -Version $Version -RepoUrl $RepositoryUrl.TrimEnd('/')
+
 Write-Host "=== Checksum SHA256 ==="
 $assets = @(
     (Join-Path $releaseDir "GameTranslatorIT-Setup-$Version.exe"),
@@ -339,6 +488,9 @@ if ($essentialZip) { $assets += $essentialZip }
 if (-not $SkipMsix) { $assets += (Join-Path $releaseDir "GameTranslatorIT-$Version.msix") }
 $assets += $partFiles
 if ($fullZip) { $assets += $fullZip }
+if (-not [string]::IsNullOrWhiteSpace($deltaName)) { $assets += (Join-Path $releaseDir $deltaName) }
+$assets += @(Get-ChildItem -LiteralPath $releaseDir -File -Filter "GameTranslatorIT-$Version-*-manifest.json" |
+    ForEach-Object { $_.FullName })
 
 foreach ($asset in $assets) {
     if (-not (Test-Path -LiteralPath $asset)) { throw "Asset mancante: $asset" }
@@ -361,11 +513,14 @@ Tutte le 58 lingue restano selezionabili, con rilevamento automatico della sorge
 - GameTranslatorIT-Portable-Essenziali-$Version.zip (portable offline con le coppie it/es/fr/pt/zh ↔ inglese)
 - GameTranslatorIT-Models-$Version.part*.zip + relativi .sha256 (100 modelli Argos, ricomposti automaticamente dall'app)
 - GameTranslatorIT-$Version.msix (pacchetto MSIX firmato, quando disponibile)
+- GameTranslatorIT-Delta-$Version.zip + GameTranslatorIT-$Version-(installer|portable)-manifest.json (aggiornamento solo dei file cambiati, con hash e verifica)
 - File `.sha256` corrispondenti per la verifica integrità
 
 La copia completa con tutti i modelli (~10 GB) viene creata solo in locale, perché supera il limite GitHub di 2 GB per asset.
 
-Le impostazioni utente in `%APPDATA%\GameTranslatorIT` vengono conservate.
+Aggiornamento differenziale: il manifest elenca gli hash di tutti i file dell'app; il client scarica solo l'archivio dei file nuovi/modificati, verifica ogni hash, conserva un backup in TEMP e ripristina in caso di errore. La fonte del manifest è configurabile in Impostazioni > AGGIORNAMENTI oppure con GITUPDATER_MANIFEST_URL. Senza manifest viene usato il pacchetto completo già pubblicato.
+
+Le impostazioni utente in `%APPDATA%\GameTranslatorIT`, le lingue installate e le selezioni vengono conservate: non fanno parte del manifest e non vengono mai sostituite.
 "@)
 }
 

@@ -13,7 +13,11 @@ public sealed record UpdateInfo(
     string ReleaseUrl,
     UpdateAsset Asset,
     string ChecksumAssetName,
-    IReadOnlyList<UpdateAsset> AllAssets);
+    IReadOnlyList<UpdateAsset> AllAssets)
+{
+    /// <summary>Asset manifest per l'aggiornamento differenziale, se pubblicato.</summary>
+    public string? ManifestAssetName { get; init; }
+}
 
 /// <summary>Esito di un controllo versione. Gli errori non interrompono l'app.</summary>
 public sealed record UpdateCheckResult(

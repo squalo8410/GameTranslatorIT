@@ -92,6 +92,23 @@ public static class LanguageCatalog
 
     public static int TotalCount => Languages.Length;
 
+    /// <summary>Definizioni con modello Argos locale installabile (50 lingue).</summary>
+    public static IReadOnlyList<(string Code, string Name)> LocalLanguageDefinitions =>
+        Languages.Where(l => l.Local).Select(l => (l.Code, l.ItalianName)).ToList();
+
+    /// <summary>8 lingue senza modello locale: non vengono inventate package.</summary>
+    public static IReadOnlyList<(string Code, string Name)> OnlineOnlyDefinitions =>
+        Languages.Where(l => !l.Local).Select(l => (l.Code, l.ItalianName)).ToList();
+
+    public static IReadOnlyList<(string Code, string Name)> MissingLocalDefinitions(AvailableLanguages available) =>
+        LocalLanguageDefinitions.Where(l => !available.TargetCodes.Contains(l.Code)).ToList();
+
+    public static IReadOnlyList<(string Code, string Name)> InstalledLocalDefinitions(AvailableLanguages available) =>
+        LocalLanguageDefinitions.Where(l => available.TargetCodes.Contains(l.Code)).ToList();
+
+    public static string NameForCode(string code) =>
+        Languages.FirstOrDefault(l => string.Equals(l.Code, code, StringComparison.OrdinalIgnoreCase))?.ItalianName ?? code;
+
     public static IReadOnlyList<string> GetOcrLanguageTags()
     {
         var tags = new List<string>();

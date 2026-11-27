@@ -165,6 +165,14 @@
                                     Margin="0,0,0,8" />
                             <Button Content="Aggiungi riquadro" Command="{Binding AddRegionCommand}"
                                     HorizontalAlignment="Left" Margin="0,0,0,8" />
+                            <DockPanel Margin="0,0,0,8" LastChildFill="False">
+                                <ComboBox x:Name="RegionDeleteCombo" ItemsSource="{Binding Regions}"
+                                          DisplayMemberPath="Name" Width="150" Margin="0,0,8,0"
+                                          ToolTip="Scegli la selezione da eliminare" />
+                                <Button Content="ELIMINA SELEZIONE" Command="{Binding DeleteRegionCommand}"
+                                        CommandParameter="{Binding SelectedItem, ElementName=RegionDeleteCombo}"
+                                        Style="{StaticResource StopButton}" Padding="12,6" />
+                            </DockPanel>
                             <ItemsControl ItemsSource="{Binding Regions}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
@@ -284,8 +292,20 @@
                                       ToolTip="Lingua in cui viene tradotto il testo" />
                             <TextBlock Text="{Binding LanguageHint}" Style="{StaticResource Muted}"
                                        TextWrapping="Wrap" Margin="0,10,0,0" />
-                            <Button Content="Aggiorna elenco lingue" Command="{Binding RefreshLanguagesCommand}"
-                                    HorizontalAlignment="Left" Margin="0,8,0,0" />
+                            <TextBlock Text="{Binding LanguageInstallCounts}" Style="{StaticResource Muted}"
+                                       Margin="0,6,0,0" />
+                            <TextBlock Text="{Binding LanguageInstallStatus}" Style="{StaticResource Muted}"
+                                       TextWrapping="Wrap" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding LanguageInstallFailuresText}" Style="{StaticResource Muted}"
+                                       TextWrapping="Wrap" Foreground="#FFFFB47A" Margin="0,4,0,0" />
+                            <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                                <Button Content="Aggiorna elenco lingue" Command="{Binding RefreshLanguagesCommand}"
+                                        Margin="0,0,8,0" />
+                                <Button Content="INSTALLA TUTTE LE LINGUE" Command="{Binding InstallAllLanguagesCommand}"
+                                        Style="{StaticResource PrimaryButton}" Padding="12,6" />
+                            </StackPanel>
+                            <Button Content="Riprova fallimenti" Command="{Binding RetryFailedLanguagesCommand}"
+                                    HorizontalAlignment="Left" Margin="0,6,0,0" />
                         </StackPanel>
                     </Expander>
 

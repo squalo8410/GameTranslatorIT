@@ -35,7 +35,8 @@
                     <ComboBox x:Name="RegionCombo" Width="180" DisplayMemberPath="Name"
                               DockPanel.Dock="Right" Margin="0,0,10,0"
                               ToolTip="Riquadro da modificare" SelectionChanged="RegionCombo_SelectionChanged" />
-                    <Button Content="Rimuovi selezione" Click="Remove_Click" DockPanel.Dock="Right" Margin="0,0,10,0" />
+                    <Button Content="Disattiva selezione" Click="Remove_Click" DockPanel.Dock="Right" Margin="0,0,10,0"
+                            ToolTip="Disattiva la lettura; per eliminarla usa ELIMINA SELEZIONE" />
                     <Button Content="Salva e chiudi" Click="Save_Click" DockPanel.Dock="Right" Margin="0,0,10,0" />
                 </DockPanel>
                 <DockPanel LastChildFill="False" Margin="0,0,0,8">

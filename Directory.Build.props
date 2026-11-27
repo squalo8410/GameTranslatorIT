@@ -7,6 +7,9 @@
     <FileVersion>$(Version).0</FileVersion>
     <Company>GameTranslator IT</Company>
     <Product>GameTranslator IT</Product>
+    <!-- Nessun percorso assoluto del PC di sviluppo nei PDB/binari distribuiti. -->
+    <Deterministic>true</Deterministic>
+    <PathMap>$(MSBuildProjectDirectory)=/GameTranslatorIT/$(MSBuildProjectName)</PathMap>
   </PropertyGroup>
 
 </Project>

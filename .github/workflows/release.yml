@@ -91,23 +91,70 @@ jobs:
           if (-not $iscc) { throw "ISCC.exe non trovato dopo l'installazione." }
           Write-Host "ISCC disponibile: $iscc"
 
-      - name: Compila EXE, ZIP, MSIX e checksum
+      - name: Prepara la versione precedente per l'aggiornamento differenziale
+        id: delta
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $previous = $null
+          try {
+            $releases = & gh release list --repo $env:GITHUB_REPOSITORY --limit 20 `
+                --json tagName,isDraft,isPrerelease 2>$null | ConvertFrom-Json
+            $previous = @($releases | Where-Object {
+              -not $_.isDraft -and -not $_.isPrerelease -and $_.tagName -ne "v$env:VERSION"
+            } | Select-Object -First 1).tagName
+          }
+          catch { Write-Host "Nessuna release precedente utilizzabile: $($_.Exception.Message)" }
+
+          if ([string]::IsNullOrWhiteSpace($previous)) {
+            Write-Host "Nessuna baseline: l'archivio delta conterrà tutti i file dell'app."
+            exit 0
+          }
+
+          $download = Join-Path $env:RUNNER_TEMP 'gtit-delta-download'
+          $extract = Join-Path $env:RUNNER_TEMP 'gtit-delta-base'
+          New-Item -ItemType Directory -Force -Path $download, $extract | Out-Null
+          & gh release download $previous --repo $env:GITHUB_REPOSITORY `
+              --pattern 'GameTranslatorIT-Portable-*.zip' --dir $download 2>$null | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Download della baseline $previous non riuscito: si procede senza delta."
+            exit 0
+          }
+          $zip = @(Get-ChildItem -LiteralPath $download -Filter '*.zip' | Where-Object {
+            $_.Name -notmatch 'Essenziali|Completo'
+          } | Select-Object -First 1)
+          if ($zip.Count -eq 0) { Write-Host "ZIP portable non trovato in $previous: si procede senza delta."; exit 0 }
+          Expand-Archive -LiteralPath $zip[0].FullName -DestinationPath $extract -Force
+          $app = @(Get-ChildItem -LiteralPath $extract -Directory | Select-Object -First 1)
+          if ($app.Count -eq 0) { Write-Host "Cartella app non trovata: si procede senza delta."; exit 0 }
+          "base=$($app[0].FullName)" >> $env:GITHUB_OUTPUT
+          Write-Host "Baseline differenziale: $($app[0].FullName) (release $previous)"
+
+      - name: Compila EXE, ZIP, MSIX, manifest e checksum
         shell: pwsh
         env:
           VERSION: ${{ steps.version.outputs.version }}
           PFX_PATH: ${{ steps.msix.outputs.pfx }}
           PFX_PASSWORD: ${{ secrets.MSIX_PFX_PASSWORD }}
           MSIX_SKIP: ${{ steps.msix.outputs.skip }}
+          DELTA_BASE: ${{ steps.delta.outputs.base }}
         run: |
           # I modelli (~10 GB) superano il limite GitHub di 2 GB: gli asset
           # GameTranslatorIT-Models*.zip e le portable con modelli vengono caricati
-          # separatamente dalla build locale. La CI pubblica EXE, portable standard e MSIX.
+          # separatamente dalla build locale. La CI pubblica EXE, portable standard,
+          # MSIX, archivio/manifest del differenziale e i relativi .sha256.
+          $params = @('-Version', $env:VERSION, '-SkipModelAssets')
+          if (-not [string]::IsNullOrWhiteSpace($env:DELTA_BASE)) { $params += @('-DeltaBasePath', $env:DELTA_BASE) }
           if ($env:MSIX_SKIP -eq 'false') {
-            .\BuildRelease.ps1 -Version $env:VERSION -SkipModelAssets -PfxPath $env:PFX_PATH -PfxPassword $env:PFX_PASSWORD
+            $params += @('-PfxPath', $env:PFX_PATH, '-PfxPassword', $env:PFX_PASSWORD)
           }
           else {
-            .\BuildRelease.ps1 -Version $env:VERSION -SkipModelAssets -SkipMsix
+            $params += '-SkipMsix'
           }
+          & .\BuildRelease.ps1 @params
+          if ($LASTEXITCODE -ne 0) { throw "BuildRelease.ps1 non riuscita." }
 
       - name: Pubblica la release GitHub
         shell: pwsh
@@ -121,7 +168,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $notes)) { throw "Note di rilascio mancanti: $notes" }
 
           $assets = Get-ChildItem -LiteralPath $releaseDir -File |
-            Where-Object { $_.Extension -in @('.exe', '.zip', '.msix', '.sha256') } |
+            Where-Object { $_.Extension -in @('.exe', '.zip', '.msix', '.sha256', '.json') } |
             ForEach-Object { $_.FullName }
 
           if ($assets.Count -lt 4) { throw "Asset insufficienti per la release: $($assets.Count)" }

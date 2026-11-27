@@ -283,6 +283,19 @@ public partial class SettingsWindow : Window
         _settings.SystemVolume = Math.Clamp(_settings.SystemVolume, 0, 100);
         _settings.TranslationTimeoutMs = Math.Clamp(_settings.TranslationTimeoutMs, 500, 30000);
         _settings.UpdateCheckIntervalHours = Math.Clamp(_settings.UpdateCheckIntervalHours, 1, 168);
+        _settings.UpdateManifestUrl = _settings.UpdateManifestUrl?.Trim() ?? string.Empty;
+        _settings.LanguageInstallPythonPath = _settings.LanguageInstallPythonPath?.Trim() ?? string.Empty;
+        _settings.ArgosPackagesDirectory = _settings.ArgosPackagesDirectory?.Trim() ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(_settings.UpdateManifestUrl) &&
+            (!Uri.TryCreate(_settings.UpdateManifestUrl, UriKind.Absolute, out var manifestUri) ||
+             manifestUri.Scheme != Uri.UriSchemeHttps))
+        {
+            MessageBox.Show(this,
+                "L'URL del manifest aggiornamenti deve essere HTTPS (oppure lasciare il campo vuoto).",
+                "URL non valido", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
 
         _settings.TtsVoiceName = (TtsVoiceCombo.SelectedItem as SpeechVoice)?.Name;
         _settings.AudioInputDeviceId = (AudioInputCombo.SelectedItem as AudioInputDevice)?.Id;

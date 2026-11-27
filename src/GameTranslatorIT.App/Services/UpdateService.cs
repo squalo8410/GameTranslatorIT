@@ -18,7 +18,7 @@ public sealed class UpdateService
     private const string DefaultOwner = "squalo8410";
     private const string DefaultRepo = "GameTranslatorIT";
     private const string DefaultApiUrl = $"https://api.github.com/repos/{DefaultOwner}/{DefaultRepo}/releases/latest";
-    private const string UserAgent = "GameTranslatorIT-Updater/1.0";
+    internal const string UserAgent = "GameTranslatorIT-Updater/1.0";
     private const int ApiTimeoutSeconds = 20;
     private const int DownloadTimeoutMinutes = 15;
 
@@ -29,7 +29,28 @@ public sealed class UpdateService
             var raw = Assembly.GetEntryAssembly()
                 ?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
                 ?.InformationalVersion;
-            return TryParseVersion(raw, out var version) ? version.ToString(3) : "1.0.0";
+            var assemblyVersion = TryParseVersion(raw, out var version) ? version : new Version(0, 0, 0, 0);
+
+            // I pacchetti differenziali possono aggiornare solo questo marker:
+            // senza di esso l'app continuerebbe a proporsi la stessa versione.
+            try
+            {
+                var marker = Path.Combine(AppContext.BaseDirectory, "version.json");
+                if (File.Exists(marker))
+                {
+                    using var document = JsonDocument.Parse(File.ReadAllText(marker));
+                    if (document.RootElement.TryGetProperty("version", out var element) &&
+                        TryParseVersion(element.GetString(), out var markerVersion) &&
+                        markerVersion > assemblyVersion)
+                        assemblyVersion = markerVersion;
+                }
+            }
+            catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
+            {
+                // Marker assente o danneggiato: vale la versione compilata.
+            }
+
+            return assemblyVersion.ToString(3);
         }
     }
 
@@ -91,8 +112,10 @@ public sealed class UpdateService
                 return new UpdateCheckResult(true, null,
                     $"Nessun aggiornamento disponibile (versione installata {current.ToString(3)}).", null);
 
+            var versionText = remoteVersion.ToString(3);
             var assets = ParseAssets(root, allowLocal);
-            var selected = SelectAsset(assets, DetectInstallChannel());
+            var channel = DetectInstallChannel();
+            var selected = SelectAsset(assets, channel, versionText);
             if (selected is null)
                 return new UpdateCheckResult(false, null, "Verifica non riuscita",
                     "Nella release non è presente alcun asset GameTranslatorIT supportato (EXE, ZIP o MSIX).");
@@ -102,16 +125,23 @@ public sealed class UpdateService
                 return new UpdateCheckResult(false, null, "Verifica non riuscita",
                     $"Manca il file di integrità '{checksumName}' nella release.");
 
+            var manifestName = $"GameTranslatorIT-{versionText}-{channel.ToString().ToLowerInvariant()}-manifest.json";
+            var manifestAsset = assets.FirstOrDefault(a =>
+                string.Equals(a.Name, manifestName, StringComparison.OrdinalIgnoreCase));
+
             var info = new UpdateInfo(
-                remoteVersion.ToString(3),
-                tag ?? remoteVersion.ToString(3),
-                root.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? $"Versione {remoteVersion.ToString(3)}" : $"Versione {remoteVersion.ToString(3)}",
+                versionText,
+                tag ?? versionText,
+                root.TryGetProperty("name", out var nameElement) ? nameElement.GetString() ?? $"Versione {versionText}" : $"Versione {versionText}",
                 root.TryGetProperty("body", out var bodyElement) ? bodyElement.GetString() : null,
                 TryPublishedAt(root),
                 root.TryGetProperty("html_url", out var urlElement) ? urlElement.GetString() ?? DefaultApiUrl : DefaultApiUrl,
                 selected,
                 checksumName,
-                assets);
+                assets)
+            {
+                ManifestAssetName = manifestAsset?.Name
+            };
 
             return new UpdateCheckResult(true, info, $"Nuova versione {info.Version} disponibile.", null);
         }
@@ -142,14 +172,14 @@ public sealed class UpdateService
         Directory.CreateDirectory(workDirectory);
 
         progress?.Report("Download dell'aggiornamento in corso...");
-        var assetPath = await DownloadAsync(info.Asset, workDirectory, allowLocal, resolvedToken, progress, cancellationToken).ConfigureAwait(false);
+        var assetPath = await DownloadAssetAsync(info.Asset, workDirectory, allowLocal, resolvedToken, progress, cancellationToken).ConfigureAwait(false);
 
         var checksumAsset = info.AllAssets.FirstOrDefault(a =>
             string.Equals(a.Name, info.ChecksumAssetName, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidDataException($"Checksum '{info.ChecksumAssetName}' non trovato nella release.");
 
         progress?.Report("Download del checksum in corso...");
-        var checksumPath = await DownloadAsync(checksumAsset, workDirectory, allowLocal, resolvedToken, progress, cancellationToken).ConfigureAwait(false);
+        var checksumPath = await DownloadAssetAsync(checksumAsset, workDirectory, allowLocal, resolvedToken, progress, cancellationToken).ConfigureAwait(false);
 
         progress?.Report("Verifica SHA256 del file scaricato...");
         var expectedHash = await VerifySha256Async(assetPath, checksumPath, info.Asset.Size).ConfigureAwait(false);
@@ -188,26 +218,29 @@ public sealed class UpdateService
         progress?.Report("Aggiornamento avviato. L'app si chiuderà e si riavvierà da sola.");
     }
 
-    private static async Task<string> DownloadAsync(
+    internal static async Task<string> DownloadAssetAsync(
         UpdateAsset asset,
         string workDirectory,
         bool allowLocal,
         string? token,
         IProgress<string>? progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? allowedHost = null)
     {
-        if (!Uri.TryCreate(asset.Url, UriKind.Absolute, out var uri) || !IsAllowedAssetUri(uri, allowLocal))
+        if (!Uri.TryCreate(asset.Url, UriKind.Absolute, out var uri) ||
+            !IsAllowedAssetUri(uri, allowLocal, allowedHost))
             throw new InvalidOperationException($"URL asset non attendibile: {asset.Url}");
 
         var path = Path.Combine(workDirectory, Path.GetFileName(asset.Name));
         using var client = new HttpClient { Timeout = TimeSpan.FromMinutes(DownloadTimeoutMinutes) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
-        if (token is not null)
+        // Il token resta confinato a GitHub: mai inviato a una fonte custom.
+        if (token is not null && IsGitHubHost(uri.Host))
             client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
 
         using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         var finalUri = response.RequestMessage?.RequestUri ?? uri;
-        if (!IsAllowedAssetUri(finalUri, allowLocal))
+        if (!IsAllowedAssetUri(finalUri, allowLocal, allowedHost))
             throw new InvalidOperationException($"Redirection non attendibile: {finalUri}");
 
         if (!response.IsSuccessStatusCode)
@@ -237,7 +270,7 @@ public sealed class UpdateService
         return path;
     }
 
-    private static async Task<string> VerifySha256Async(string filePath, string checksumPath, long? expectedSize)
+    internal static async Task<string> VerifySha256Async(string filePath, string checksumPath, long? expectedSize)
     {
         var checksumText = await File.ReadAllTextAsync(checksumPath).ConfigureAwait(false);
         var hash = checksumText.Split(new[] { ' ', '\t', '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
@@ -464,7 +497,7 @@ public sealed class UpdateService
         return scriptPath;
     }
 
-    private static UpdateInstallChannel DetectInstallChannel()
+    internal static UpdateInstallChannel DetectInstallChannel()
     {
         var baseDirectory = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (baseDirectory.Contains("WindowsApps", StringComparison.OrdinalIgnoreCase))
@@ -515,15 +548,25 @@ public sealed class UpdateService
         return assets;
     }
 
-    private static UpdateAsset? SelectAsset(IReadOnlyList<UpdateAsset> assets, UpdateInstallChannel channel)
+    private static UpdateAsset? SelectAsset(IReadOnlyList<UpdateAsset> assets, UpdateInstallChannel channel, string version)
     {
+        // Le portable Essenziali/Completo non sono pacchetti di aggiornamento:
+        // verrebbero altrimenti scelte al posto di quella standard.
         var installer = assets.FirstOrDefault(a =>
-            a.Name.StartsWith("GameTranslatorIT-Setup-", StringComparison.OrdinalIgnoreCase) &&
-            a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
+            string.Equals(a.Name, $"GameTranslatorIT-Setup-{version}.exe", StringComparison.OrdinalIgnoreCase))
+            ?? assets.FirstOrDefault(a =>
+                a.Name.StartsWith("GameTranslatorIT-Setup-", StringComparison.OrdinalIgnoreCase) &&
+                a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
         var portable = assets.FirstOrDefault(a =>
-            a.Name.StartsWith("GameTranslatorIT-Portable-", StringComparison.OrdinalIgnoreCase) &&
-            a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
-        var msix = assets.FirstOrDefault(a => a.Name.EndsWith(".msix", StringComparison.OrdinalIgnoreCase));
+            string.Equals(a.Name, $"GameTranslatorIT-Portable-{version}.zip", StringComparison.OrdinalIgnoreCase))
+            ?? assets.FirstOrDefault(a =>
+                a.Name.StartsWith("GameTranslatorIT-Portable-", StringComparison.OrdinalIgnoreCase) &&
+                !a.Name.Contains("Essenziali", StringComparison.OrdinalIgnoreCase) &&
+                !a.Name.Contains("Completo", StringComparison.OrdinalIgnoreCase) &&
+                a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase));
+        var msix = assets.FirstOrDefault(a =>
+            string.Equals(a.Name, $"GameTranslatorIT-{version}.msix", StringComparison.OrdinalIgnoreCase))
+            ?? assets.FirstOrDefault(a => a.Name.EndsWith(".msix", StringComparison.OrdinalIgnoreCase));
 
         return channel switch
         {
@@ -544,7 +587,7 @@ public sealed class UpdateService
     /// Priorità: GITHUB_TOKEN (override temporaneo), poi il token salvato nelle impostazioni locali.
     /// Non esistono valori predefiniti: senza token le release pubbliche funzionano comunque.
     /// </summary>
-    private static string? ResolveToken(string? configured)
+    internal static string? ResolveToken(string? configured)
     {
         var environment = Environment.GetEnvironmentVariable("GITHUB_TOKEN")?.Trim();
         if (!string.IsNullOrEmpty(environment)) return environment;
@@ -553,7 +596,7 @@ public sealed class UpdateService
         return string.IsNullOrEmpty(local) ? null : local;
     }
 
-    private static (Uri Uri, bool AllowLocal) ResolveApiUri()
+    internal static (Uri Uri, bool AllowLocal) ResolveApiUri()
     {
         var configured = Environment.GetEnvironmentVariable("GITUPDATER_API_URL");
         var raw = string.IsNullOrWhiteSpace(configured) ? DefaultApiUrl : configured.Trim();
@@ -577,7 +620,12 @@ public sealed class UpdateService
         return client;
     }
 
-    private static bool IsAllowedAssetUri(Uri uri, bool allowLocal)
+    /// <summary>
+    /// Accetta GitHub e, solo quando l'utente ha configurato esplicitamente una
+    /// fonte alternativa, l'host di quella fonte. Il token Bearer non viene mai
+    /// inviato a host diversi da GitHub.
+    /// </summary>
+    internal static bool IsAllowedAssetUri(Uri uri, bool allowLocal, string? allowedHost = null)
     {
         if (uri.Scheme != Uri.UriSchemeHttps)
             return allowLocal && IsLoopback(uri.Host);
@@ -585,8 +633,15 @@ public sealed class UpdateService
         var host = uri.Host;
         return host.Equals("github.com", StringComparison.OrdinalIgnoreCase)
             || host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase)
-            || host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase);
+            || host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(allowedHost) &&
+                host.Equals(allowedHost, StringComparison.OrdinalIgnoreCase));
     }
+
+    private static bool IsGitHubHost(string host) =>
+        host.Equals("github.com", StringComparison.OrdinalIgnoreCase) ||
+        host.Equals("api.github.com", StringComparison.OrdinalIgnoreCase) ||
+        host.EndsWith(".githubusercontent.com", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsLoopback(string host)
     {

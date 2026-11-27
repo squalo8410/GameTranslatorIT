@@ -72,6 +72,9 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private UpdateWindow? _updateWindow;
     private bool _updateCheckRunning;
     private bool _updateApplyRunning;
+    private bool _languageInstallRunning;
+    private IReadOnlyList<string> _languageInstallFailures = Array.Empty<string>();
+    private string _languageInstallStatus = "Modelli locali non ancora verificati";
 
     public AppSettings Settings { get; }
 
@@ -252,6 +255,28 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>Avanzamento dell'installazione massiva dei modelli locali.</summary>
+    public string LanguageInstallStatus => _languageInstallStatus;
+
+    public string LanguageInstallCounts
+    {
+        get
+        {
+            var available = _lastAvailableLanguages;
+            if (available is null)
+                return "Conteggio lingue in caricamento…";
+            var installed = LanguageCatalog.InstalledLocalDefinitions(available).Count;
+            var missing = LanguageCatalog.MissingLocalDefinitions(available).Count;
+            return $"{installed} installate · {missing} mancanti · 8 online";
+        }
+    }
+
+    public string LanguageInstallFailuresText => _languageInstallFailures.Count == 0
+        ? string.Empty
+        : "Fallimenti: " + string.Join(", ", _languageInstallFailures);
+
+    public bool CanInstallLanguages => !_languageInstallRunning && !_updateApplyRunning;
+
     public RelayCommand StartCommand { get; }
     public RelayCommand StopCommand { get; }
     public RelayCommand RefreshDevicesCommand { get; }
@@ -267,6 +292,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public RelayCommand ToggleRegionMuteCommand { get; }
     public RelayCommand CycleRegionModeCommand { get; }
     public RelayCommand RemoveRegionCommand { get; }
+    public RelayCommand DeleteRegionCommand { get; }
     public RelayCommand AddRegionCommand { get; }
     public RelayCommand OpenControlPanelCommand { get; }
     public RelayCommand OpenAudioDeviceWindowCommand { get; }
@@ -275,6 +301,8 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public RelayCommand ToggleSystemMuteCommand { get; }
     public RelayCommand TestVoiceCommand { get; }
     public RelayCommand CheckForUpdatesCommand { get; }
+    public RelayCommand InstallAllLanguagesCommand { get; }
+    public RelayCommand RetryFailedLanguagesCommand { get; }
 
     /// <summary>Valori disponibili per il numero di riquadri nel pannello di controllo.</summary>
     public IEnumerable<int> RegionCounts => Enumerable.Range(1, 12);
@@ -303,6 +331,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         ToggleRegionMuteCommand = new RelayCommand(p => ToggleRegionMute(ResolveRegion(p)));
         CycleRegionModeCommand = new RelayCommand(p => CycleRegionMode(ResolveRegion(p)));
         RemoveRegionCommand = new RelayCommand(p => RemoveRegion(ResolveRegion(p)));
+        DeleteRegionCommand = new RelayCommand(p => DeleteRegion(ResolveRegionForDeletion(p)), _ => CanInstallLanguages);
         AddRegionCommand = new RelayCommand(_ => AddRegion());
         OpenControlPanelCommand = new RelayCommand(_ => OpenControlPanel());
         OpenAudioDeviceWindowCommand = new RelayCommand(_ => OpenAudioDeviceWindow());
@@ -311,6 +340,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         ToggleSystemMuteCommand = new RelayCommand(_ => ToggleSystemMute());
         TestVoiceCommand = new RelayCommand(async _ => await TestVoiceAsync());
         CheckForUpdatesCommand = new RelayCommand(async _ => await CheckForUpdatesAsync(true, false));
+        InstallAllLanguagesCommand = new RelayCommand(async _ => await InstallMissingLanguagesAsync(false), _ => CanInstallLanguages);
+        RetryFailedLanguagesCommand = new RelayCommand(async _ => await InstallMissingLanguagesAsync(true), _ => CanInstallLanguages);
+
+        if (!string.IsNullOrWhiteSpace(Settings.LoadWarning))
+            AppendLog(Settings.LoadWarning);
 
         RefreshDevices();
         StartDeviceRefreshTimer();
@@ -945,6 +979,108 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     }
 
     /// <summary>
+    /// Installa solo le coppie Argos mancanti; gli successi non vengono ripetuti.
+    /// La fonte è l'indice già usato dall'installer, non un URL inventato.
+    /// </summary>
+    private async Task InstallMissingLanguagesAsync(bool retryFailures)
+    {
+        if (_languageInstallRunning || _updateApplyRunning) return;
+        _languageInstallRunning = true;
+        OnPropertyChanged(nameof(CanInstallLanguages));
+
+        try
+        {
+            await EnsureLocalTranslationServiceAsync().ConfigureAwait(false);
+            var available = await LanguageCatalog.QueryAsync(
+                Settings.LocalTranslateBaseUrl, Settings.TranslationTimeoutMs).ConfigureAwait(false);
+            _lastAvailableLanguages = available;
+
+            var missing = LanguageCatalog.MissingLocalDefinitions(available);
+            var installedCount = LanguageCatalog.InstalledLocalDefinitions(available).Count;
+            var candidates = retryFailures
+                ? missing.Where(m => _languageInstallFailures.Any(f =>
+                    string.Equals(f, m.Name, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(f, LanguageCatalog.NameForCode(m.Code), StringComparison.OrdinalIgnoreCase))).ToList()
+                : missing.ToList();
+
+            if (candidates.Count == 0)
+            {
+                _languageInstallFailures = Array.Empty<string>();
+                _languageInstallStatus = retryFailures
+                    ? "Nessun fallimento da riprovare."
+                    : " tutte le lingue sono già installate ";
+                AppendLog(_languageInstallStatus.Trim());
+                return;
+            }
+
+            _languageInstallStatus = $"Installazione di {candidates.Count} lingue mancanti in corso…";
+            OnPropertyChanged(nameof(LanguageInstallStatus));
+
+            var progress = new Progress<LanguageInstallProgress>(update =>
+            {
+                _languageInstallStatus =
+                    $"{update.CurrentLanguage} — {update.CompletedLanguages}/{update.TotalLanguages} · " +
+                    $"{installedCount + update.SucceededLanguages} installate · " +
+                    $"{missing.Count - update.SucceededLanguages} mancanti";
+                OnPropertyChanged(nameof(LanguageInstallStatus));
+            });
+
+            var installer = new LanguageInstallService(
+                Settings.LanguageInstallPythonPath, Settings.ArgosPackagesDirectory);
+            var result = await installer.InstallAsync(candidates, progress, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            _languageInstallFailures = result.FailedLanguages;
+
+            // Argos carica i package all'avvio: riavviando il servizio le nuove
+            // destinazioni compaiono subito nell'elenco senza riavviare l'app.
+            StopTranslationProcess();
+            await EnsureLocalTranslationServiceAsync().ConfigureAwait(false);
+            await RefreshLanguagesAsync().ConfigureAwait(false);
+
+            _languageInstallStatus = result.Message;
+            AppendLog($"Installazione lingue: {result.SucceededLanguages}/{result.RequestedLanguages} riuscite. {result.Message}");
+        }
+        catch (Exception ex)
+        {
+            _languageInstallStatus = $"Installazione lingue non riuscita: {ex.Message}";
+            AppendLog(_languageInstallStatus);
+        }
+        finally
+        {
+            _languageInstallRunning = false;
+            OnPropertyChanged(nameof(CanInstallLanguages));
+            OnPropertyChanged(nameof(LanguageInstallStatus));
+            OnPropertyChanged(nameof(LanguageInstallCounts));
+            OnPropertyChanged(nameof(LanguageInstallFailuresText));
+        }
+    }
+
+    private void StopTranslationProcess()
+    {
+        var process = _translationProcess;
+        _translationProcess = null;
+        _autoStartAttempted = false;
+        if (process is null) return;
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(entireProcessTree: true);
+                process.WaitForExit(5000);
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Chiusura servizio locale prima del riavvio: {ex.Message}");
+        }
+        finally
+        {
+            process.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Allinea pyvenv.cfg al percorso reale della portable: senza questo,
     /// sys._base_executable punta al Python usato durante la build e i processi
     /// figli di LibreTranslate non partono su un altro computer.
@@ -1068,16 +1204,16 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             // Argos Translate li legge da ARGOS_PACKAGES_DIR invece che dal profilo.
             // Se la portable è stata scaricata senza archivi modello, lasciamo il
             // comportamento storico (modelli installati nel profilo utente).
-            if (isPortable)
+            var configuredModels = string.IsNullOrWhiteSpace(Settings.ArgosPackagesDirectory)
+                ? null
+                : Environment.ExpandEnvironmentVariables(Settings.ArgosPackagesDirectory.Trim());
+            var portableModels = Path.Combine(AppContext.BaseDirectory, "Models", "argos-translate", "packages");
+            var activeModels = configuredModels ?? (isPortable && Directory.Exists(portableModels) ? portableModels : null);
+            if (!string.IsNullOrWhiteSpace(activeModels) &&
+                (Directory.Exists(activeModels) || !string.IsNullOrWhiteSpace(configuredModels)))
             {
-                var portableModels = Path.Combine(AppContext.BaseDirectory, "Models", "argos-translate", "packages");
-                var hasPortableModels = Directory.Exists(portableModels) &&
-                    Directory.GetDirectories(portableModels).Length > 0;
-                if (hasPortableModels)
-                {
-                    start.EnvironmentVariables["ARGOS_PACKAGES_DIR"] = portableModels;
-                    AppendLog($"Modelli portable attivi: {portableModels}");
-                }
+                start.EnvironmentVariables["ARGOS_PACKAGES_DIR"] = activeModels;
+                AppendLog($"Cartella modelli Argos attiva: {activeModels}");
             }
 
             _translationProcess = Process.Start(start);
@@ -1137,6 +1273,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                 || !string.Equals(_lastLanguageSignature, signature, StringComparison.Ordinal);
 
             _lastAvailableLanguages = available;
+            OnPropertyChanged(nameof(LanguageInstallCounts));
             _lastLanguageSignature = signature;
             (_provider as CompositeTranslationProvider)?.UpdateLanguages(available.SourceCodes, available.TargetCodes);
 
@@ -1272,6 +1409,18 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         string id => Settings.CaptureRegions.FirstOrDefault(r =>
             string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase)
             || string.Equals(r.Name, id, StringComparison.OrdinalIgnoreCase)),
+        _ => null
+    };
+
+    /// <summary>
+    /// Per l'eliminazione non usiamo il nome: due riquadri con lo stesso nome
+    /// porterebbero a togliere quello sbagliato. Valgono solo riferimento e ID.
+    /// </summary>
+    private CaptureRegionConfig? ResolveRegionForDeletion(object? parameter) => parameter switch
+    {
+        CaptureRegionConfig config when Settings.CaptureRegions.Contains(config) => config,
+        string id => Settings.CaptureRegions.FirstOrDefault(r =>
+            string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase)),
         _ => null
     };
 
@@ -1555,7 +1704,84 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _overlay.RemoveRegionEntry(region.Id);
         _settingsService.Save(Settings);
         OnPropertyChanged(nameof(RegionsSummary));
-        AppendLog($"Riquadro '{region.Name}' rimosso dalla lettura.");
+        AppendLog($"Riquadro '{region.Name}' disattivato (la selezione resta salvata).");
+    }
+
+    /// <summary>
+    /// Elimina davvero una selezione: la toglie dall'elenco persistente, abbassa
+    /// RegionCount prima di salvare (altrimenti EnsureCaptureRegions la ricrea) e
+    /// azzera lo stato di pipeline/overlay/voce. Le altre selezioni non cambiano.
+    /// </summary>
+    public void DeleteRegion(CaptureRegionConfig? region)
+    {
+        if (_updateApplyRunning || _languageInstallRunning)
+        {
+            AppendLog("Eliminazione non consentita durante un aggiornamento o l'installazione delle lingue.");
+            return;
+        }
+        if (region is null)
+        {
+            MessageBox.Show(Application.Current.MainWindow,
+                "Scegli prima la selezione da eliminare.", "Elimina selezione",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var index = Settings.CaptureRegions.IndexOf(region);
+        if (index < 0) return;
+        if (Settings.CaptureRegions.Count <= 1)
+        {
+            MessageBox.Show(Application.Current.MainWindow,
+                "Non si può eliminare l'unica selezione rimasta.", "Elimina selezione",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var confirm = MessageBox.Show(Application.Current.MainWindow,
+            $"Eliminare la selezione '{region.Name}' ({region.Coordinates})?\n\n" +
+            "Le altre selezioni restano invariate. Questa operazione non è annullabile.",
+            "Elimina selezione", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (confirm != MessageBoxResult.Yes) return;
+
+        var id = region.Id;
+        var name = region.Name;
+        var previousCount = Settings.RegionCount;
+        Settings.CaptureRegions.RemoveAt(index);
+        Settings.RegionCount = Settings.CaptureRegions.Count;
+
+        try
+        {
+            _settingsService.Save(Settings);
+        }
+        catch (Exception ex)
+        {
+            Settings.CaptureRegions.Insert(index, region);
+            Settings.RegionCount = previousCount;
+            OnPropertyChanged(nameof(Regions));
+            OnPropertyChanged(nameof(RegionCount));
+            MessageBox.Show(Application.Current.MainWindow,
+                $"Selezione non eliminata: {ex.Message}", "Elimina selezione",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        _pendingSpeech.Remove(id);
+        if (string.Equals(_speakingRegionId, id, StringComparison.OrdinalIgnoreCase))
+        {
+            _speech.Stop();
+            _speakingRegionId = null;
+        }
+        _overlay.RemoveRegionEntry(id);
+
+        OnPropertyChanged(nameof(Regions));
+        OnPropertyChanged(nameof(RegionCount));
+        OnPropertyChanged(nameof(RegionsSummary));
+        if (IsRunning)
+        {
+            Stop();
+            Start();
+        }
+        AppendLog($"Selezione '{name}' eliminata e salvata in {_settingsService.SettingsPath}.");
     }
 
     private void AddRegion()
@@ -1983,14 +2209,34 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_updateApplyRunning) return;
         _updateApplyRunning = true;
+        OnPropertyChanged(nameof(CanInstallLanguages));
         var reporting = progress ?? new Progress<string>(_ => { });
 
         try
         {
             UpdateStatus = new ComponentStatus(ComponentState.Attivo, "Download aggiornamento");
             UpdateStatusText = "Download e verifica dell'aggiornamento…";
-            await _updateService.DownloadAndApplyAsync(info, Settings.GitHubToken, reporting).ConfigureAwait(false);
 
+            var delta = new DeltaUpdateService();
+            var result = await delta.ApplyAsync(
+                info, Settings.GitHubToken, Settings.UpdateManifestUrl, reporting, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            if (!result.Applied)
+            {
+                // Nessun manifest per questo canale: si usa comunque il pacchetto
+                // completo già pubblicato, con SHA256 e rollback esistenti.
+                reporting.Report($"{result.Message} Si usa il pacchetto completo.");
+                await _updateService.DownloadAndApplyAsync(info, Settings.GitHubToken, reporting).ConfigureAwait(false);
+            }
+            else
+            {
+                reporting.Report(result.Message);
+            }
+
+            // Chiude anche LibreTranslate: i file sotto Runtime\LibreTranslate
+            // altrimenti resterebbero bloccati durante la sostituzione.
+            StopTranslationProcess();
             _settingsService.Save(Settings);
             AppendLog($"Aggiornamento {info.Version} scaricato e verificato. Riavvio in corso…");
             Dispatch(() => Application.Current.Shutdown());
@@ -2005,6 +2251,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         finally
         {
             _updateApplyRunning = false;
+            OnPropertyChanged(nameof(CanInstallLanguages));
         }
     }
 
@@ -2050,6 +2297,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         if (_disposed) return;
         Stop();
+        StopTranslationProcess();
         StopPendingDeviceWatch();
         _pendingDeviceTimer = null;
         _languageRefreshTimer?.Stop();

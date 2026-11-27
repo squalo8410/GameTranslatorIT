@@ -160,6 +160,29 @@ public sealed class AppSettings
     /// </summary>
     public string GitHubToken { get; set; } = string.Empty;
 
+    /// <summary>
+    /// URL HTTPS di un manifest di aggiornamento alternativo. Vuoto = viene cercato
+    /// tra gli asset della release GitHub, esattamente come i pacchetti già pubblicati.
+    /// Può essere sovrascritto dalla variabile GITUPDATER_MANIFEST_URL.
+    /// </summary>
+    public string UpdateManifestUrl { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Percorso facoltativo dell'interprete Python usato per installare i modelli
+    /// Argos. Vuoto = runtime portable, poi venv di GameTranslator IT, poi PATH.
+    /// </summary>
+    public string LanguageInstallPythonPath { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Cartella Argos personalizzata. Vuoto = cartella portable quando presente,
+    /// altrimenti la cartella predefinita della libreria Argos Translate.
+    /// </summary>
+    public string ArgosPackagesDirectory { get; set; } = string.Empty;
+
+    /// <summary>Non serializzato: avviso mostrato se settings.json non era leggibile.</summary>
+    [JsonIgnore]
+    public string? LoadWarning { get; set; }
+
     private static readonly JsonSerializerOptions CloneOptions = new()
     {
         Converters = { new JsonStringEnumConverter() }
@@ -203,6 +226,17 @@ public sealed class AppSettings
     {
         RegionCount = Math.Clamp(RegionCount, 1, 12);
         CaptureRegions ??= new ObservableCollection<CaptureRegionConfig>();
+
+        // ID duplicati o vuoti farebbero collidere pipeline, overlay e hotkey:
+        // vengono corretti una volta, senza toccare coordinate o stato dell'utente.
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var region in CaptureRegions)
+        {
+            if (string.IsNullOrWhiteSpace(region.Id) || !ids.Add(region.Id))
+                region.Id = Guid.NewGuid().ToString("N");
+            if (string.IsNullOrWhiteSpace(region.Name))
+                region.Name = "Riquadro";
+        }
 
         while (CaptureRegions.Count < RegionCount)
             CaptureRegions.Add(CaptureRegionConfig.CreateDefault(CaptureRegions.Count));
